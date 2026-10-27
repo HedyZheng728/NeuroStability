@@ -65,3 +65,24 @@ class ArtifactSyncTests(unittest.TestCase):
                     worker=RemoteWorker('https://test','secret',root/str(i),settings=settings,results_only=True)
                 try:self.assertEqual(bool(worker.settings.llm_base_url),i==1)
                 finally:worker.close()
+    def test_continuous_startup_retries_transport_failure_and_stops_cleanly(self):
+        from unittest.mock import Mock
+        from arena.cloud_bridge import initial_sync
+        sync=Mock();sync.run_once.side_effect=[httpx.ReadError('temporary network interruption'),{'conflicts':0}]
+        stop=Mock();stop.is_set.return_value=False;stop.wait.return_value=False
+        self.assertEqual(initial_sync(sync,stop),{'conflicts':0})
+        self.assertEqual(sync.run_once.call_count,2)
+        stop.wait.assert_called_once_with(3)
+        sync=Mock();sync.run_once.side_effect=httpx.ReadError('offline')
+        stop.wait.return_value=True
+        self.assertIsNone(initial_sync(sync,stop))
+        self.assertEqual(sync.run_once.call_count,1)
+    def test_startup_auth_failure_and_once_mode_are_not_silently_retried(self):
+        from unittest.mock import Mock
+        from arena.cloud_bridge import initial_sync
+        stop=Mock();stop.is_set.return_value=False
+        sync=Mock();sync.run_once.side_effect=httpx.HTTPStatusError('unauthorized',request=httpx.Request('GET','https://test'),response=httpx.Response(401))
+        with self.assertRaises(httpx.HTTPStatusError):initial_sync(sync,stop)
+        stop.wait.assert_not_called()
+        sync.run_once.side_effect=httpx.ReadError('offline')
+        with self.assertRaises(httpx.ReadError):initial_sync(sync,stop,retry=False)

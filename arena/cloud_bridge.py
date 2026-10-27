@@ -137,6 +137,22 @@ class JsonArtifacts:
             save_json(self.path, self.state)
 
 
+def initial_sync(sync, stop, *, retry=True):
+    """Resume initial synchronization after transient outages, without retrying bad credentials."""
+    delay = 3
+    while not stop.is_set():
+        try:
+            return sync.run_once()
+        except (httpx.TransportError, httpx.HTTPStatusError) as error:
+            if not retry or isinstance(error, httpx.HTTPStatusError) and error.response.status_code < 500 and error.response.status_code != 429:
+                raise
+            log.warning('Initial sync interrupted; checkpoint retained; retry in %s seconds', delay)
+            if stop.wait(delay):
+                return None
+            delay = min(60, delay * 2)
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
@@ -178,7 +194,8 @@ def main():
         signal.signal(signum, lambda *_: stop.set())
     worker = None; thread = None
     try:
-        counts = sync.run_once()
+        counts = initial_sync(sync, stop, retry=not args.once)
+        if counts is None: return
         log.info('Results synchronized: %s; JSON uploaded=%s verified=%s', counts, artifacts.uploaded, artifacts.verified)
         if counts['conflicts']:
             log.warning('Divergent records retained; see private result-sync checkpoint')
