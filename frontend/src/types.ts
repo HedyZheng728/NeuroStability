@@ -37,7 +37,7 @@ export type SubjectRole = 'athlete' | 'coach' | 'unknown';
 export type AnalysisAssessment = { id: Id; job_id: Id; decision: AssessmentDecision; subject_role: SubjectRole; reason: string; reviewer: string; updated_at: string };
 export type AssessmentHistory = { id: Id; job_id: Id; snapshot: AnalysisAssessment; created_at: string };
 export type Job = {
-  id: Id; video_id?: Id; backend: Backend; status: string; stage: string; progress: number;
+  id: Id; video_id?: Id; backend: Backend | 'review_draft'; status: string; stage: string; progress: number;
   params?: Record<string, unknown>; error?: string | null; result: Result | null; metadata?: Record<string, unknown>; created_at?: string; assessment?: AnalysisAssessment | null;
 };
 export type Review = { observations: string; next_action: string; confirmed: boolean; confirmed_by?: string; updated_at: string; draft_id?: Id | null };
@@ -74,7 +74,7 @@ export const categories: Record<Category, { name: string; description: string; n
   ...trainingCategories,
   mixed: { name: '混合训练', description: '多种训练内容', number: '05' },
 };
-export const backendNames: Record<Backend, string> = { preprocess: '视频预处理 · 人工复盘', rtmpose: 'RTMPose · 2D 测量', rtmpose_tracking: 'RTMPose + ByteTrack · 人物轨迹', sam2: 'SAM2 · 人物分割', fsw: 'FSW-Net · 专项识别', sample: '合成样例 · 功能验证', wham: 'WHAM · 实验性 3D', action: 'Qwen3-VL · 动作分析', pose3d: 'MotionBERT · 三维骨架' };
+export const backendNames: Record<Backend | 'review_draft', string> = { preprocess: '视频预处理 · 人工复盘', rtmpose: 'RTMPose · 2D 测量', rtmpose_tracking: 'RTMPose + ByteTrack · 人物轨迹', sam2: 'SAM2 · 人物分割', fsw: 'FSW-Net · 专项识别', sample: '合成样例 · 功能验证', wham: 'WHAM · 实验性 3D', action: 'Qwen3-VL · 动作分析', pose3d: 'MotionBERT · 三维骨架', review_draft: '复盘语言模型' };
 export const modelNames: Record<Exclude<keyof Models, 'rtmpose_tracking'>, string> = { action: backendNames.action, pose3d: backendNames.pose3d, preprocessing: '视频预处理', rtmpose: backendNames.rtmpose, fsw: backendNames.fsw, sample: backendNames.sample, wham: backendNames.wham, llm: '复盘语言模型', sam2: 'SAM2 · 人物分割', tracking: 'ByteTrack · 人物轨迹' };
 export const activeJob = (job: Job) => job.status === 'queued' || job.status === 'running';
 export function dateTime(value?: string) { return value ? new Date(value).toLocaleString(localeTag(), { hour12: false, timeZone: getWorkspaceTimezone() }) : '—'; }

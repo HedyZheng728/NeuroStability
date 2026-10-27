@@ -18,7 +18,8 @@ const capabilityBackends: Partial<Record<Capability, Backend>> = { pose: 'rtmpos
 function capabilityLabel(value: Capability) {
   return ({ original: tx('Original', '原片'), pose: tx('2D pose', '二维姿态'), tracking: tx('Tracking', '人物追踪'), masks: tx('Masks', '人物分割'), review: tx('AI review', 'AI 复盘'), techniques: tx('Action analysis', '动作分析'), '3d': tx('3D', '三维骨架') })[value];
 }
-function capabilityForBackend(backend: Backend): Capability {
+function capabilityForBackend(backend: Job['backend']): Capability {
+  if (backend === 'review_draft') return 'review';
   return capabilities.find(value => capabilityBackends[value] === backend) || 'original';
 }
 function latestCapabilityJob(jobs: Job[], backend: Backend) {
@@ -65,8 +66,10 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
     if (!reviewJob || generating || !state.data?.models.llm?.ready) return;
     setGenerating(true);
     try {
-      const draft = await post<ReviewDraft>(`/videos/${id}/review-drafts`, { job_id: reviewJob.id, provider: 'llm', language: getLocale() });
-      setGeneratedDraft({ videoId: id, draft }); state.reload(); notify(tx('AI review draft generated.', 'AI 复盘草稿已生成。'), 'success');
+      const draft = await post<ReviewDraft & { status?: string }>(`/videos/${id}/review-drafts`, { job_id: reviewJob.id, provider: 'llm', language: getLocale() });
+      if (draft.status === 'queued') notify(tx('Queued for analysis on your computer', '已排队，等待电脑分析'), 'success');
+      else { setGeneratedDraft({ videoId: id, draft }); notify(tx('AI review draft generated.', 'AI 复盘草稿已生成。'), 'success'); }
+      state.reload();
     } catch (err) { notify(errorMessage(err), 'error'); } finally { setGenerating(false); }
   }
   useEffect(() => {
@@ -74,7 +77,7 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
     let alive = true; let timer: number;
     const poll = async () => {
       try { const updated = await api<Report>(`/videos/${id}/report`); if (alive) { state.setData(previous => previous ? { ...previous, report: updated } : previous); if (updated.jobs.some(activeJob)) timer = window.setTimeout(poll, 2000); } }
-      catch (err) { if (alive) notify(errorMessage(err), 'error'); }
+      catch { if (alive) timer = window.setTimeout(poll, 5000); }
     };
     timer = window.setTimeout(poll, 2000);
     return () => { alive = false; window.clearTimeout(timer); };
@@ -88,6 +91,12 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
       state.setData(previous => previous ? { ...previous, report: { ...previous.report, jobs: [job, ...previous.report.jobs.filter(value => value.id !== job.id)] } } : previous);
       state.reload(); notify("分析任务已提交。", 'success');
     }
+    catch (err) { notify(errorMessage(err), 'error'); } finally { setBusy(false); }
+  }
+  async function cancelRunningJob() {
+    if (!runningJob || busy) return;
+    setBusy(true);
+    try { await post(`/jobs/${runningJob.id}/cancel`, {}); state.reload(); notify(tx('Task cancelled', '任务已取消'), 'success'); }
     catch (err) { notify(errorMessage(err), 'error'); } finally { setBusy(false); }
   }
   async function remove() {
@@ -133,13 +142,14 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
     <LoadState loading={state.loading} error={state.error} retry={state.reload} />
     {report && state.data ? <>
       <PageHeader title={report.video.filename} description={`${report.video.athlete_name || t("运动员")} · ${report.video.session_date || t("训练日期未返回")} · ${t(categories[report.video.category]?.name)} · ${fileSize(report.video.size_bytes)}`} action={<button className="button secondary" onClick={downloadReport}><Icon name="download" size={17} />{t("下载报告 JSON")}</button>} />
+      {runningJob ? <div className="notice" role="status"><span>{t(backendNames[runningJob.backend])} · {t(runningJob.stage || tx('Waiting for computer', '等待电脑处理'))} · {runningJob.progress || 0}%</span><button className="button secondary small" disabled={busy} onClick={cancelRunningJob}>{tx('Cancel task', '取消任务')}</button></div> : null}
       <nav className="capability-tabs" role="tablist" aria-label={tx('Video capabilities', '视频功能')}>
         {capabilities.map(value => <button key={value} type="button" role="tab" id={`capability-${value}`} aria-controls="capability-workspace" aria-selected={capability === value} className={capability === value ? 'active' : ''} onClick={() => chooseCapability(value)}>{capabilityLabel(value)}{capabilityBackends[value] ? <i className={latestCapabilityJob(report.jobs, capabilityBackends[value]!)?.result ? 'ready' : state.data?.models[capabilityBackends[value] as keyof Models]?.ready ? 'available' : 'unavailable'} /> : null}</button>)}
       </nav>
       <div className="coach-viewport" id="capability-workspace" role="tabpanel" aria-labelledby={`capability-${capability}`}>
         <Panel className="video-panel">{capability === '3d' && selected?.backend === 'pose3d' && selected.result?.kind === 'pose3d' ? <Pose3DPlayer key={selected.id} job={selected} seekTime={seek} onTime={setCurrentTime} /> : <PosePlayer key={`${selected?.id || id}:${capability}:${playbackRequest}`} videoId={id} job={selected} preferredMode={analysisMode ? 'analysis' : 'original'} showModeControls={false} seekTime={seek} onTime={setCurrentTime} />}</Panel>
         {capability === 'review' ? <Panel className="capability-context" title={tx('AI review', 'AI 复盘')} action={<span className={`status ${state.data.models.llm?.ready ? 'success' : 'neutral'}`}>{state.data.models.llm?.ready ? tx('Available', '可使用') : tx('Unavailable', '未就绪')}</span>}>
-          <div className="capability-body"><button className="button" disabled={generating || !state.data.models.llm?.ready || !reviewJob} onClick={generateAI}>{generating ? tx('Generating…', '生成中…') : tx('Generate AI review', '生成 AI 复盘')}</button>
+          <div className="capability-body"><button className="button" disabled={generating || !!running || !state.data.models.llm?.ready || !reviewJob} onClick={generateAI}>{runningJob?.backend === 'review_draft' ? tx('Waiting for computer', '等待电脑处理') : generating ? tx('Generating…', '生成中…') : tx('Generate AI review', '生成 AI 复盘')}</button>
           {!state.data.models.llm?.ready ? <p>{tx('Language model unavailable', '语言模型未就绪')} · <a className="text-link" href="#models">{tx('Model status', '模型状态')}</a></p> : !reviewJob ? <p>{tx('Analyze this video first.', '请先分析此视频。')}</p> : null}
           {latestDraft ? <div className="capability-draft"><small title={latestDraft.model}>{tx('Saved reference', '已保存参考')} · {dateTime(latestDraft.created_at)}</small><Synthetic value={latestDraft.synthetic} /><pre>{draftDisplayText(latestDraft)}</pre></div> : null}
           <button className="text-link" onClick={scrollToReview}>{tx('Edit training review', '编辑训练复盘')}<Icon name="arrow" size={15} /></button></div>

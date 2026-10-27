@@ -1,0 +1,16 @@
+#!/bin/zsh
+# Keep this project's Cloudflare login separate from other projects on this Mac.
+set -eu
+cd -- "$(dirname -- "$0")"
+project_root="$(cd .. && pwd)"
+if [[ -d "$HOME/.wrangler" ]]; then
+  print -u2 "检测到旧版全局 Wrangler 登录目录。为避免使用错误账号，请改用本项目 .env 中的新账号 API Token。"
+  exit 1
+fi
+umask 077
+mkdir -p "$project_root/data/cloudflare-auth"
+chmod 700 "$project_root/data/cloudflare-auth"
+exec env -u CLOUDFLARE_API_TOKEN -u CF_API_TOKEN -u CLOUDFLARE_API_KEY -u CF_API_KEY \
+  -u CLOUDFLARE_EMAIL -u CF_EMAIL -u CLOUDFLARE_ACCOUNT_ID -u CF_ACCOUNT_ID \
+  XDG_CONFIG_HOME="$project_root/data/cloudflare-auth" WRANGLER_SEND_METRICS=false \
+  ./node_modules/.bin/wrangler "$@"

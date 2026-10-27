@@ -548,6 +548,17 @@ def create_app(settings=None):
     def get_job(id: str):
         return assessed_jobs([require(db.jobs, id)])[0]
 
+    @app.post("/api/jobs/{id}/cancel")
+    def cancel_job(id: str):
+        require(db.jobs, id)
+        with ctx.db.engine.begin() as c:
+            changed = c.execute(update(db.jobs).where(db.jobs.c.id == id, db.jobs.c.status.in_(ACTIVE))
+                                .values(status="failed", stage="Cancelled", error="Cancelled",
+                                        worker_token=None, lease_until=None, updated_at=db.now()))
+            if not changed.rowcount:
+                raise HTTPException(409, "任务已经结束")
+        return get_job(id)
+
     @app.get("/api/jobs/{id}/assessment")
     def get_assessment(id: str):
         with ctx.db.engine.connect() as c:

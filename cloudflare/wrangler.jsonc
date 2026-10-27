@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "neurostability",
+  "main": "src/api.ts",
+  "compatibility_date": "2026-05-21",
+  "workers_dev": true,
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/healthz"],
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "neurostability",
+    "database_id": "REPLACE_WITH_CREATED_D1_DATABASE_ID",
+    "migrations_dir": "migrations"
+  }],
+  "r2_buckets": [{"binding": "MEDIA", "bucket_name": "neurostability-private"}],
+  "vars": {"ARENA_TIMEZONE": "Asia/Shanghai"},
+  "observability": {"enabled": false}
+}

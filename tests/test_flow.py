@@ -96,6 +96,26 @@ class FlowTests(unittest.TestCase):
         with TestClient(self.app) as outsider:
             self.assertEqual(outsider.get("/api/videos").status_code, 401)
 
+    def test_cancel_queued_or_running_job_fences_worker_and_allows_retry(self):
+        _, session = self.records()
+        video = self.upload(session).json()
+        endpoint = f"/api/videos/{video['id']}/jobs"
+        job = self.client.post(endpoint, json={"backend": "rtmpose"}).json()
+        cancelled = self.client.post(f"/api/jobs/{job['id']}/cancel")
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "failed")
+        retry = self.client.post(endpoint, json={"backend": "rtmpose"})
+        self.assertEqual(retry.status_code, 202, retry.text)
+        with self.app.state.ctx.db.engine.begin() as connection:
+            connection.execute(update(db.jobs).where(db.jobs.c.id == retry.json()["id"])
+                               .values(status="running", worker_token="old-lease", lease_until=int(time.time()) + 90))
+        cancelled = self.client.post(f"/api/jobs/{retry.json()['id']}/cancel")
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        record = self.app.state.ctx.db.get(db.jobs, retry.json()["id"])
+        self.assertIsNone(record["worker_token"])
+        self.assertIsNone(record["lease_until"])
+        self.assertEqual(self.client.post(f"/api/jobs/{retry.json()['id']}/cancel").status_code, 409)
+
     def test_consent_and_input_validation(self):
         _, s = self.records()
         self.assertEqual(self.upload(s, authorized="false").status_code, 422)

@@ -1,0 +1,21 @@
+{
+  "name": "neurostability-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/api.ts --bundle --format=esm --target=es2022 --outfile=dist/worker.js && esbuild src/analytics.ts --format=esm --target=es2022 --outfile=dist/analytics.js",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "build:site": "npm --prefix ../frontend ci && npm --prefix ../frontend run build && npm run build",
+    "deploy:ci": "node configure-build.mjs && wrangler d1 migrations apply DB --remote --config wrangler.deploy.json && wrangler deploy --config wrangler.deploy.json",
+    "dev": "./run dev --ip 127.0.0.1",
+    "deploy": "npm --prefix ../frontend run build && ./run deploy",
+    "check:deploy": "npm --prefix ../frontend run build && ./run deploy --dry-run --outdir dist/deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260521.1",
+    "esbuild": "^0.25.0",
+    "miniflare": "4.20260521.0",
+    "typescript": "^5.9.3",
+    "wrangler": "4.94.0"
+  }
+}

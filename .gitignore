@@ -42,3 +42,10 @@ docs/implementation.md
 .aws/
 .codex/
 .agents/
+
+# Cloudflare local bindings, deployment output and private credentials.
+.wrangler/
+.dev.vars
+.dev.vars.*
+cloudflare/dist/
+cloudflare/wrangler.deploy.json

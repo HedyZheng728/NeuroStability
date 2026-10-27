@@ -18,6 +18,10 @@ docs/implementation.md
 .aws
 .codex
 .agents
+cloudflare
+.wrangler
+.dev.vars
+.dev.vars.*
 *.mp4
 *.MP4
 *.mov

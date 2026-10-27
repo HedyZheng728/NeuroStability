@@ -1,6 +1,6 @@
 import { t, tx, localeTag, useLocale } from './i18n';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, ApiError, configureApi, post } from './api';
+import { api, ApiError, configureApi, loginAccount, post } from './api';
 import { Field, Icon, type Notify } from './components';
 import { errorMessage, type Auth } from './types';
 import { getWorkspaceTimezone, setWorkspaceTimezone } from './planningTypes';
@@ -106,7 +106,7 @@ function Login({ initialError, signedIn }: { initialError: string; signedIn: (au
   const [busy, setBusy] = useState(false);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); const value = new FormData(event.currentTarget);
-    try { signedIn(await post<Auth>('/login', { username: value.get('username'), password: value.get('password') })); }
+    try { signedIn(await loginAccount<Auth>(String(value.get('username') || ''), String(value.get('password') || ''))); }
     catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
   }
   return <div className="login-page">
