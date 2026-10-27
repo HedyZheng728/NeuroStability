@@ -38,6 +38,7 @@ test('imported PBKDF2 hashes authenticate through one-use challenge; cookie, CSR
     assert.equal((await call('/api/athletes', { method: 'POST', headers: { origin: 'https://evil.test' }, data: { name: 'blocked' } })).status, 403);
     assert.equal((await call('/api/worker/claim', { method: 'POST', auth: false, data: { worker_id: 'w', backends: ['preprocess'] } })).status, 401);
     assert.equal((await call('/healthz', { auth: false })).headers.get('x-content-type-options'), 'nosniff');
+    assert.equal((await (await call('/healthz', { auth: false })).json()).authentication, 'browser-proof-v1');
 });
 test('athletes, plans and sessions preserve validation and atomic plan linking', async () => {
     athlete = await value('/api/athletes', { method: 'POST', data: { name: ' Test Athlete ', level: ' club ' } }, 201);

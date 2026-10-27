@@ -34,12 +34,13 @@ export const put = <T,>(path: string, value: unknown) => api<T>(path, { method: 
 
 export async function loginAccount<T>(username: string, password: string): Promise<T> {
   username = username.trim(); password = password.trim();
-  let challenge: { challenge_id: string; salt: string; nonce: string; iterations: number };
-  try { challenge = await post('/login/challenge', { username }); }
-  catch (error) {
-    if (error instanceof ApiError && error.status === 404) return post<T>('/login', { username, password });
-    throw error;
-  }
+  let health: Response;
+  try { health = await fetch('/healthz', { credentials: 'same-origin' }); }
+  catch { throw new ApiError('无法连接服务，请检查网络后重试。', 0); }
+  if (!health.ok) throw new ApiError(`Service unavailable (${health.status})`, health.status);
+  const capabilities = await health.json();
+  if (capabilities.authentication !== 'browser-proof-v1') return post<T>('/login', { username, password });
+  const challenge = await post<{ challenge_id: string; salt: string; nonce: string; iterations: number }>('/login/challenge', { username });
   if (challenge.iterations !== 260000 || !challenge.salt || !challenge.nonce || !challenge.challenge_id) throw new ApiError('Invalid login challenge', 422);
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);

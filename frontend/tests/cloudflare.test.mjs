@@ -18,6 +18,7 @@ test('cloud login preserves existing PBKDF2 password without transmitting passwo
   const paths = [];
   const client = load(async (path, options) => {
     paths.push(path);
+    if (path === '/healthz') return reply({ status: 'ok', authentication: 'browser-proof-v1' });
     const body = JSON.parse(options.body);
     if (path.endsWith('/challenge')) return reply({ challenge_id: 'c', salt, nonce, iterations: 260000 });
     assert.equal(body.proof, createHmac('sha256', pbkdf2Sync(password, salt, 260000, 32, 'sha256')).update(nonce).digest('hex'));
@@ -26,20 +27,21 @@ test('cloud login preserves existing PBKDF2 password without transmitting passwo
   });
   assert.equal(typeof client.loginAccount, 'function');
   assert.equal((await client.loginAccount('admin', password)).username, 'admin');
-  assert.deepEqual(paths, ['/api/login/challenge', '/api/login']);
+  assert.deepEqual(paths, ['/healthz', '/api/login/challenge', '/api/login']);
 });
 
-test('local installation uses existing login only when challenge route is absent', async () => {
+test('local login discovers the existing protocol without probing protected unknown API routes', async () => {
   const paths = [];
   const client = load(async (path, options) => {
     paths.push(path);
-    if (path.endsWith('/challenge')) return reply({ detail: 'Not Found' }, 404);
+    if (path === '/healthz') return reply({ status: 'ok', version: '0.1.0' });
+    if (path.endsWith('/challenge')) return reply({ detail: 'Please sign in' }, 401);
     assert.equal(JSON.parse(options.body).password, 'local-password');
     return reply({ username: 'admin' });
   });
   assert.equal(typeof client.loginAccount, 'function');
   await client.loginAccount('admin', 'local-password');
-  assert.equal(paths.length, 2);
+  assert.deepEqual(paths, ['/healthz', '/api/login']);
   const failed = load(async () => reply({ detail: 'Rate limited' }, 429));
   await assert.rejects(() => failed.loginAccount('admin', 'local-password'), error => error.status === 429);
 });

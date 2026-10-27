@@ -92,7 +92,7 @@ async function api(req: Request, env: Env) {
     let m: any;
     if (path === '/healthz' && method === 'GET') {
         await env.DB.prepare('SELECT version FROM schema_version').first();
-        return json({ status: 'ok', version: '0.1.0' });
+        return json({ status: 'ok', version: '0.1.0', authentication: 'browser-proof-v1' });
     }
     if (path === '/api/login/challenge' && method === 'POST')
         return challenge(req, env);
