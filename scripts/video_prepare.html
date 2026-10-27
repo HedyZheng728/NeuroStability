@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arena · Video preparation</title>
+<style>
+
+:root{font-family:Arial,"PingFang SC",sans-serif;color:#222d4b;background:#f6f4ee;font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0}
+button,a,input{font:inherit}
+button,a{touch-action:manipulation}
+button,.download{border:1px solid #dadde5;border-radius:7px;padding:12px 19px;background:white;color:#222d4b;cursor:pointer;font-weight:600}
+button:hover,.download:hover{border-color:#c15c3c}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,a:focus-visible{outline:3px solid #c15c3c;outline-offset:3px}
+.primary{background:#25314f;color:white;border-color:#25314f}
+.secondary{background:transparent}
+.danger{color:#ad452c}
+header{border-bottom:1px solid #d9d9d5;display:flex;align-items:center;justify-content:space-between;padding:23px 5%;gap:16px}
+.brand{display:flex;align-items:center;gap:15px;font-size:18px;font-weight:700}
+.mark{color:#c15c3c;font-size:32px;letter-spacing:-5px;transform:skew(-17deg);padding-right:7px}
+.tag{font-size:10px;letter-spacing:2px;padding:6px 8px;border:1px solid #c7cad2;border-radius:4px;color:#5f6a80}
+.controls{display:flex;gap:9px}
+.controls button{padding:8px 12px;font-size:12px}
+main{width:min(100% - 36px,1020px);margin:45px auto}
+h1{font-size:clamp(26px,4vw,40px);letter-spacing:-1.3px;margin:0 0 28px}
+h2{font-size:19px;margin:0}
+p{line-height:1.6}
+.workspace{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.panel{background:white;border:1px solid #dedfdf;border-radius:10px;overflow:hidden}
+.panel-header{padding:22px 24px;border-bottom:1px solid #e5e5e3;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.panel-body{padding:24px}
+.drop{border:1px dashed #bbc0cb;background:#fafaf7;border-radius:8px;min-height:235px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:20px}
+.drop.dragging{background:#f3e9e1;border-color:#c15c3c}
+.drop strong{font-size:18px}
+.file-name{overflow-wrap:anywhere;line-height:1.5}
+.formats{color:#657086;font-size:12px}
+.file-input{position:absolute;width:1px;height:1px;opacity:0}
+.file-input:focus-visible+button{outline:3px solid #c15c3c}
+.limits{display:flex;gap:0;border-top:1px solid #e5e5e3;margin-top:24px;padding-top:20px}
+.limits div{width:50%;display:flex;flex-direction:column;gap:6px}
+.limits span{color:#657086;font-size:12px}
+.limits strong{font-size:20px}
+video{display:block;width:100%;max-height:285px;min-height:180px;background:#202a45;border-radius:6px}
+.preview-empty{height:235px;display:grid;place-items:center;background:#25314f;color:#c7ceda;border-radius:6px;font-size:13px}
+.status{margin:0 0 24px;background:#fff;border:1px solid #dedfdf;border-radius:9px;padding:24px}
+.status-head{display:flex;justify-content:space-between;gap:20px;align-items:center}
+.status-head strong{font-size:17px}
+.progress{height:7px;border-radius:4px;background:#eceee9;margin:20px 0 12px;overflow:hidden}
+.progress span{display:block;height:100%;background:#c15c3c;transition:width .2s}
+.status-meta{display:flex;justify-content:space-between;align-items:center;gap:20px;color:#657086;font-size:13px}
+.status-meta button{font-size:12px;padding:8px 13px}
+.error{color:#a63d2b;white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0 0;font-size:14px}
+.results{margin-top:24px}
+.clip{display:flex;justify-content:space-between;align-items:center;gap:22px;padding:20px 24px;border-top:1px solid #e5e5e3}
+.clip:first-child{border:0}
+.clip strong{font-size:14px;overflow-wrap:anywhere;line-height:1.5}
+.clip small{display:block;color:#657086;margin-top:5px}
+.download{text-decoration:none;font-size:12px;white-space:nowrap;padding:10px 13px}
+.folder{padding:20px 24px;display:flex;gap:16px;justify-content:space-between;align-items:center;border-top:1px solid #e5e5e3}
+.folder code{overflow-wrap:anywhere;font-size:12px;color:#657086}
+.folder button{padding:8px 12px;font-size:12px;white-space:nowrap}
+select{width:100%;margin-top:16px;padding:10px;border:1px solid #d9dce4;border-radius:6px;color:#25314f;background:white}
+a.arena{color:#a84d32;font-size:13px;font-weight:600;text-decoration:none}
+.hidden,[hidden]{display:none!important}
+@media(max-width:650px){header{padding:17px 18px}
+.brand{font-size:14px;gap:10px}
+.tag{display:none}
+.workspace{grid-template-columns:1fr}
+main{margin-top:28px}
+.panel-body{padding:20px}
+.panel-header{padding:18px 20px}
+.clip{padding:18px 20px;gap:12px}
+.controls button{padding:8px 10px}
+.folder{flex-direction:column;align-items:flex-start}
+.preview-empty{height:160px}
+.status{padding:20px}
+}
+
+</style>
+<header>
+<div class="brand">
+<span class="mark" aria-hidden="true">///</span>NeuroStability <span class="tag">LOCAL TOOL</span>
+</div>
+<div class="controls">
+<button id="locale" aria-label="Switch language">EN / 中文</button>
+<button id="quit" class="secondary" data-en="Close tool" data-zh="关闭工具">Close tool</button>
+</div>
+</header>
+<main>
+<h1 data-en="Video preparation" data-zh="视频整理">Video preparation</h1>
+<section id="status" class="status" role="status" hidden>
+<div class="status-head">
+<strong id="stage">
+</strong>
+<span id="percent">
+</span>
+</div>
+<div class="progress">
+<span id="bar">
+</span>
+</div>
+<div class="status-meta">
+<span id="detail">
+</span>
+<div>
+<button id="resume" class="primary" data-en="Resume" data-zh="继续" hidden>Resume</button>
+<button id="cancel" class="danger" data-en="Cancel" data-zh="取消">Cancel</button>
+</div>
+</div>
+<p id="error" class="error" role="alert" hidden>
+</p>
+</section>
+<div class="workspace">
+<section class="panel">
+<div class="panel-header">
+<h2 data-en="Source video" data-zh="原始视频">Source video</h2>
+</div>
+<div class="panel-body">
+<div id="drop" class="drop">
+<svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#687590" stroke-width="1.2" aria-hidden="true">
+<rect x="3" y="5" width="13" height="14" rx="2"/>
+<path d="m16 10 5-3v10l-5-3"/>
+</svg>
+<strong id="filename" class="file-name" data-en="Drop a video" data-zh="拖入训练视频">Drop a video</strong>
+<input id="file" class="file-input" type="file" accept=".mp4,.mov,.m4v,.webm,.mkv" aria-label="Video file">
+<button id="choose" class="primary" data-en="Choose video" data-zh="选择视频">Choose video</button>
+<span class="formats">MP4 · MOV · M4V · WebM · MKV</span>
+</div>
+<div class="limits">
+<div>
+<span data-en="Output size limit" data-zh="输出大小上限">Output size limit</span>
+<strong id="size-limit">100 MB</strong>
+</div>
+<div>
+<span data-en="Output duration limit" data-zh="输出时长上限">Output duration limit</span>
+<strong id="duration-limit">5 min</strong>
+</div>
+</div>
+</div>
+</section>
+<section class="panel">
+<div class="panel-header">
+<h2 data-en="Preview" data-zh="视频预览">Preview</h2>
+<a class="arena" href="http://localhost:8000/#upload" target="_blank" rel="noopener" data-en="Open Arena ↗" data-zh="打开训练平台 ↗">Open Arena ↗</a>
+</div>
+<div class="panel-body">
+<div id="preview-empty" class="preview-empty" data-en="Select a video" data-zh="请选择视频">Select a video</div>
+<video id="preview" controls preload="metadata" hidden>
+</video>
+<select id="preview-select" aria-label="Preview clip" hidden>
+</select>
+<p id="preview-error" class="error" hidden>
+</p>
+</div>
+</section>
+</div>
+
+<section id="results" class="panel results" hidden>
+<div class="panel-header">
+<h2 id="result-title">
+</h2>
+<a id="manifest" class="download" download="manifest.json" data-en="Source manifest" data-zh="来源清单">Source manifest</a>
+</div>
+<div id="clips">
+</div>
+<div class="folder">
+<code id="folder">
+</code>
+<button id="copy" data-en="Copy folder path" data-zh="复制文件夹路径">Copy folder path</button>
+</div>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let locale = "en";
+try {
+    locale = localStorage.getItem("arena.prepare.locale") === "zh" ? "zh" : "en";
+}
+catch {
+}
+const tx = (en, zh) => locale === "zh" ? zh : en;
+let limits = {
+    max_bytes: 100 * 1024 * 1024, max_seconds: 300
+};
+let selected = null, task = null, paused = false, busy = false, cancelling = false, pollTimer = null, uploadController = null, objectURL = null, token = "";
+const stages = {
+    uploading: ["Reading local file", "读取本地视频"], queued: ["Queued", "排队中"], checking: ["Checking video", "检查视频"], copying: ["Keeping original quality", "保留原始画质"], splitting: ["Lossless splitting", "无损分段"], encoding: ["Encoding video", "转码中"], shortening: ["Adjusting clip length", "调整分段长度"], complete: ["Ready to upload", "可以上传"], failed: ["Processing failed", "处理失败"], cancelled: ["Cancelled", "已取消"], paused: ["Connection interrupted", "连接中断"], closing: ["Tool stopped", "工具已关闭"]
+};
+function local(key, value) {
+    try {
+        if (value === undefined)
+            return sessionStorage.getItem(key);
+        sessionStorage.setItem(key, value);
+    }
+    catch {
+    }
+    return null;
+}
+function size(bytes) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+function duration(seconds) {
+    return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+}
+function language() {
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+    $("locale").setAttribute("aria-label", tx("Switch language", "切换语言"));
+    document.title = tx("Arena \u00B7 Video preparation", "Arena \u00B7 视频整理");
+    document.querySelectorAll("[data-en]").forEach(el => el.textContent = el.dataset[locale]);
+    $("file").setAttribute("aria-label", tx("Video file", "视频文件"));
+    $("preview-select").setAttribute("aria-label", tx("Preview clip", "预览片段"));
+    $("size-limit").textContent = size(limits.max_bytes);
+    $("duration-limit").textContent = limits.max_seconds >= 60 ? `${limits.max_seconds / 60} ${tx("min", "分钟")}` : `${limits.max_seconds} ${tx("sec", "秒")}`;
+    if (selected)
+        $("filename").textContent = selected.name;
+    else if (task)
+        $("filename").textContent = task.filename;
+    render();
+}
+function displayError(value) {
+    const messages = {
+        "HDR compression needs an SDR export first. The original file is unchanged.": "HDR 视频需要先导出 SDR 版本，原片未改动。",
+        "Cannot decode video. Check the file and FFmpeg/ffprobe installation.": "无法解码，请检查视频文件和 FFmpeg 安装。",
+        "Not enough free disk space for the source and prepared clips": "磁盘空间不足，请先释放空间。",
+        "Choose a non-empty video up to 20 GiB": "请选择不超过 20GB 的有效视频。",
+        "Choose an MP4, MOV, M4V, MKV or WebM video": "请选择 MP4、MOV、M4V、MKV 或 WebM 视频。",
+        "Open the tool using its launch link": "请使用工具启动时提供的链接打开页面。",
+        "Source file changed during processing. Choose it again.": "处理期间原片发生变化，请重新选择。",
+        "The requested file size is too small to retain video detail": "大小上限过低，无法保留视频细节。",
+        "Finish or cancel the active video first": "请先完成或取消正在处理的视频。",
+    };
+    return locale === "zh" ? (messages[value] || value) : value;
+}
+function render() {
+    if (task?.filename) $("filename").textContent = task.filename;
+    if (!task)
+        return;
+    $("status").hidden = false;
+    const stage = paused ? "paused" : task.status === "running" ? task.progress.stage : task.status;
+    const labels = stages[stage] || [stage, stage];
+    $("stage").textContent = labels[locale === "zh" ? 1 : 0];
+    const fraction = stage === "uploading" ? task.uploaded / task.size : task.progress?.fraction || 0;
+    const pct = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+    $("percent").textContent = `${pct}%`;
+    $("bar").style.width = `${pct}%`;
+    $("detail").textContent = stage === "uploading" ? `${size(task.uploaded)} / ${size(task.size)}` : task.progress?.duration ? `${tx("Clip", "片段")} ${task.progress.clip} · ${duration(task.progress.elapsed || 0)} / ${duration(task.progress.duration)}` : "";
+    $("choose").disabled = busy;
+    $("file").disabled = busy;
+    $("cancel").hidden = !busy && !paused;
+    $("resume").hidden = !paused;
+    $("error").hidden = !task.error;
+    $("error").textContent = displayError(task.error || "");
+    if (task.folder && task.clips?.length)
+        renderResults();
+}
+function renderResults() {
+    $("results").hidden = false;
+    $("result-title").textContent = tx(`${task.clips.length} prepared ${task.clips.length === 1 ? "clip" : "clips"}`, `${task.clips.length} 个已整理片段`);
+    $("manifest").href = `/files/${task.id}/manifest.json`;
+    $("folder").textContent = task.folder;
+    $("clips").replaceChildren();
+    const oldChoice = $("preview-select").value;
+    $("preview-select").replaceChildren();
+    task.clips.forEach((clip, index) => {
+        const url = `/files/${task.id}/${encodeURIComponent(clip.filename)}`;
+        const row = document.createElement("div");
+        row.className = "clip";
+        const info = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = clip.filename;
+        const meta = document.createElement("small");
+        meta.textContent = `${size(clip.size_bytes)} · ${duration(clip.duration_seconds)} · ${clip.mode === "copy" ? tx("Original", "原样保留") : clip.mode === "stream_copy" ? tx("Lossless split", "无损分段") : "H.264"}`;
+        info.append(title, meta);
+        const link = document.createElement("a");
+        link.className = "download";
+        link.href = url;
+        link.download = clip.filename;
+        link.textContent = tx("Download", "下载");
+        row.append(info, link);
+        $("clips").append(row);
+        const option = document.createElement("option");
+        option.value = url;
+        option.textContent = `${index + 1}. ${clip.filename}`;
+        $("preview-select").append(option);
+    });
+    $("preview-select").hidden = false;
+    if ([...$("preview-select").options].some(option => option.value === oldChoice))
+        $("preview-select").value = oldChoice;
+}
+async function request(path, options = {}) {
+    const headers = new Headers(options.headers);
+    if (token)
+        headers.set("X-Arena-Token", token);
+    if (options.json) {
+        headers.set("Content-Type", "application/json");
+        options.body = JSON.stringify(options.json);
+        delete options.json;
+    }
+    const response = await fetch(path, {
+        ...options, headers
+    });
+    if (!response.ok) {
+        let message = `HTTP ${response.status}`;
+        try {
+            message = (await response.json()).error || message;
+        }
+        catch {
+        }
+        const failure = Error(message);
+        failure.status = response.status;
+        throw failure;
+    }
+    return response.json();
+}
+function error(err) {
+    if (cancelling || err.name === "AbortError")
+        return;
+    busy = false;
+    paused = !!task;
+    task = task || {
+        status: "failed", progress: {
+            fraction: 0
+        }
+    };
+    task.error = String(err.message || err);
+    render();
+    $("choose").disabled = false;
+    $("file").disabled = false;
+}
+function preview(url) {
+    $("preview-error").hidden = true;
+    $("preview-empty").hidden = true;
+    $("preview").hidden = false;
+    $("preview").src = url;
+}
+async function accept(file) {
+    if (!file || busy)
+        return;
+    clearTimeout(pollTimer);
+    if (task?.status === "uploading")
+        await request(`/api/jobs/${task.id}/cancel`, {
+            method: "POST"
+        }).catch(() => {
+        });
+    selected = file;
+    paused = false;
+    cancelling = false;
+    task = null;
+    $("results").hidden = true;
+    $("preview-select").hidden = true;
+    $("preview-select").replaceChildren();
+    $("filename").textContent = file.name;
+    if (objectURL)
+        URL.revokeObjectURL(objectURL);
+    objectURL = URL.createObjectURL(file);
+    preview(objectURL);
+    busy = true;
+    $("choose").disabled = true;
+    $("file").disabled = true;
+    try {
+        task = await request("/api/uploads", {
+            method: "POST", json: {
+                filename: file.name, size: file.size
+            }
+        });
+        local("arena.prepare.task", task.id);
+        render();
+        await transfer();
+    }
+    catch (err) {
+        error(err);
+    }
+}
+async function transfer() {
+    paused = false;
+    busy = true;
+    cancelling = false;
+    task.error = "";
+    render();
+    try {
+        task = await request(`/api/jobs/${task.id}`);
+        if (task.status !== "uploading") {
+            await poll();
+            return;
+        }
+        if (!selected)
+            throw Error(tx("Select the video again.", "请重新选择视频。"));
+        while (task.uploaded < selected.size) {
+            if (cancelling)
+                return;
+            uploadController = new AbortController();
+            const end = Math.min(selected.size, task.uploaded + 4 * 1024 * 1024);
+            await request(`/api/uploads/${task.id}`, {
+                method: "PUT", headers: {
+                    "X-Upload-Offset": String(task.uploaded)
+                }, body: selected.slice(task.uploaded, end), signal: uploadController.signal
+            });
+            task.uploaded = end;
+            render();
+        }
+        await request(`/api/jobs/${task.id}/start`, {
+            method: "POST"
+        });
+        await poll();
+    }
+    catch (err) {
+        error(err);
+    }
+}
+async function poll() {
+    clearTimeout(pollTimer);
+    try {
+        task = await request(`/api/jobs/${task.id}`);
+        paused = false;
+        busy = ["uploading", "queued", "running"].includes(task.status);
+        render();
+        if (task.status === "complete" && task.clips.length) {
+            preview(`/files/${task.id}/${encodeURIComponent(task.clips[0].filename)}`);
+        $("results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        if (busy)
+            pollTimer = setTimeout(poll, 700);
+    }
+    catch (err) {
+        error(err);
+    }
+}
+$("choose").onclick = () => {
+    $("file").value = "";
+    $("file").click();
+};
+$("file").onchange = () => accept($("file").files[0]);
+$("drop").ondragover = event => {
+    event.preventDefault();
+    $("drop").classList.add("dragging");
+};
+$("drop").ondragleave = () => {
+    $("drop").classList.remove("dragging");
+};
+$("drop").ondrop = event => {
+    event.preventDefault();
+    $("drop").classList.remove("dragging");
+    accept(event.dataTransfer.files[0]);
+};
+$("resume").onclick = () => task?.status === "uploading" ? transfer() : poll();
+$("cancel").onclick = async () => {
+    cancelling = true;
+    uploadController?.abort();
+    clearTimeout(pollTimer);
+    try {
+        await request(`/api/jobs/${task.id}/cancel`, {
+            method: "POST"
+        });
+        paused = false;
+        await poll();
+    }
+    catch (err) {
+        cancelling = false;
+        error(err);
+    }
+};
+$("locale").onclick = () => {
+    locale = locale === "en" ? "zh" : "en";
+    try {
+        localStorage.setItem("arena.prepare.locale", locale);
+    }
+    catch {
+    }
+    language();
+};
+$("preview-select").onchange = () => preview($("preview-select").value);
+$("preview").onerror = () => {
+    $("preview-error").hidden = false;
+    $("preview-error").textContent = tx("Preview unavailable in this browser. The original file can still be processed.", "此浏览器无法预览，仍可整理原视频。");
+};
+$("copy").onclick = () => navigator.clipboard.writeText(task.folder).catch(err => error(err));
+$("quit").onclick = async () => {
+    try {
+        await request("/api/quit", {
+            method: "POST"
+        });
+        clearTimeout(pollTimer);
+        uploadController?.abort();
+        task = {
+            status: "closing", progress: {
+                fraction: 0
+            }
+        };
+        busy = false;
+        paused = false;
+        render();
+        $("choose").disabled = true;
+        $("file").disabled = true;
+        $("quit").disabled = true;
+    }
+    catch (err) {
+        error(err);
+    }
+};
+async function boot() {
+    const supplied = new URLSearchParams(location.hash.slice(1)).get("token");
+    if (supplied && supplied !== local("arena.prepare.token")) {
+        try {
+            sessionStorage.removeItem("arena.prepare.task");
+        }
+        catch {
+        }
+    }
+    token = supplied || local("arena.prepare.token") || "";
+    if (token)
+        local("arena.prepare.token", token);
+    history.replaceState(null, "", location.pathname);
+    language();
+    try {
+        limits = await request("/api/authorize", {
+            method: "POST"
+        });
+        language();
+        const id = local("arena.prepare.task");
+        if (id) {
+            try {
+                task = await request(`/api/jobs/${id}`);
+            }
+            catch (err) {
+                if (err.status === 404) {
+                    try {
+                        sessionStorage.removeItem("arena.prepare.task");
+                    }
+                    catch {
+                    }
+                    return;
+                }
+                throw err;
+            }
+            if (task.status === "uploading") {
+                await request(`/api/jobs/${id}/cancel`, {
+                    method: "POST"
+                });
+                task.status = "cancelled";
+            }
+            await poll();
+        }
+    }
+    catch (err) {
+        error(err);
+    }
+}
+window.addEventListener("hashchange", () => {
+    if (new URLSearchParams(location.hash.slice(1)).has("token"))
+        location.reload();
+});
+boot();
+</script>
+</html>

@@ -1,0 +1,12 @@
+.action-candidates { width: 100%; min-width: 0; }
+.action-method { margin: 0 0 12px; font-size: 12px; }
+.action-window { border-top: 1px solid var(--line); padding: 14px 0; }
+.action-window-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.action-ranking { list-style: none; padding: 0; margin: 12px 0 0; }
+.action-ranking li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.action-ranking strong { font-variant-numeric: tabular-nums; color: var(--ink); }
+.action-event-form { display: grid; gap: 10px; margin-top: 12px; }
+.action-times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.action-candidates details { font-size: 12px; }
+
+.action-hypothesis { margin: 8px 0; font-size: 12px; }

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" role="img" aria-labelledby="title desc">
+  <title id="title">女子自由式摔跤低姿对抗</title>
+  <desc id="desc">两位女运动员屈膝屈髋、躯干前倾，以控腕和上臂接触形成低姿对抗。头颈随躯干方向，双脚分前后支撑。品牌插画，不是动作测量或教学分解图。</desc>
+  <g stroke="#263551" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Four legs, each with a continuous hip-knee-ankle silhouette. -->
+    <path d="M243 287 271 316 222 367 151 453 118 456 181 347Z" fill="#c48c74"/>
+    <path d="m121 445 32 6-2 16-43 9H75q-10-5-1-13l35-11Z" fill="#263551"/>
+    <path d="m75 469 34 1 42-9v9l-42 9H76" fill="#f6f4ee" stroke-width="2"/>
+    <path d="M657 287 629 316 678 367 749 453 782 456 719 347Z" fill="#c48c74"/>
+    <path d="m779 445-32 6 2 16 43 9h33q10-5 1-13l-35-11Z" fill="#263551"/>
+    <path d="m825 469-34 1-42-9v9l42 9h33" fill="#f6f4ee" stroke-width="2"/>
+    <path d="M271 289c18 8 36 25 53 46l22 29-10 101-32 2-5-89-59-51Z" fill="#e5b093"/>
+    <path d="m304 455 32 1 7 16 36 13q9 8-2 12h-59l-24-15Z" fill="#263551"/>
+    <path d="m296 477 25 13h58v8h-61l-24-16Z" fill="#f6f4ee" stroke-width="2"/>
+    <path d="M629 289c-18 8-36 25-53 46l-22 29 10 101 32 2 5-89 59-51Z" fill="#e5b093"/>
+    <path d="m596 455-32 1-7 16-36 13q-9 8 2 12h59l24-15Z" fill="#263551"/>
+    <path d="m604 477-25 13h-58v8h61l24-16Z" fill="#f6f4ee" stroke-width="2"/>
+    <!-- Trunks are visibly inclined, with hips back and below the shoulders. -->
+    <path d="M226 282c27-33 67-57 113-71 20-6 38-1 47 17l13 34-55 33-37 43-42 3-44-26Z" fill="#536c9f"/>
+    <path d="M674 282c-27-33-67-57-113-71-20-6-38-1-47 17l-13 34 55 33 37 43 42 3 44-26Z" fill="#cf7957"/>
+    <path d="m226 282 28 17 44 27-10 19-34-4-33-26Z" fill="#354c7b" stroke="none"/>
+    <path d="m674 282-28 17-44 27 10 19 34-4 33-26Z" fill="#b65e42" stroke="none"/>
+    <path d="M244 274c31-25 63-43 96-53M656 274c-31-25-63-43-96-53" fill="none" stroke="#f6f4ee" stroke-width="5"/>
+    <path d="m295 304 35-25m275 25-35-25" fill="none" stroke="#f6f4ee" stroke-width="3"/>
+    <!-- Rear arms: distinct elbows and a low wrist-control contact. -->
+    <path d="M375 239c11-9 22-4 27 8l14 37 52 27-10 18-66-26c-6-3-10-8-12-14l-17-32c-4-8 2-15 12-18Z" fill="#cb977f"/>
+    <path d="M525 239c-11-9-22-4-27 8l-14 37-35 23 10 18 47-22c6-3 10-8 12-14l17-32c4-8-2-15-12-18Z" fill="#e5b093"/>
+    <path d="m451 306 14-3 12 8-6 15-13 4-11-10Z" fill="#cb977f"/>
+    <path d="m458 309 9 4m-11 2 9 5" fill="none" stroke="#9a6959" stroke-width="1.5"/>
+    <!-- Necks follow the inclined trunk; faces angle toward the contact. -->
+    <path d="m379 225 21-11 17 26-22 22-15-10Z" fill="#e5b093"/>
+    <path d="m521 225-21-11-17 26 22 22 15-10Z" fill="#e5b093"/>
+    <path d="M406 195c16-4 27 4 32 14l8 13-4 7-5 1-5 11-10 6-14-5-11-17 1-18Z" fill="#e5b093"/>
+    <path d="M494 195c-16-4-27 4-32 14l-8 13 4 7 5 1 5 11 10 6 14-5 11-17-1-18Z" fill="#e5b093"/>
+    <!-- Close-fitting tied hair, no floating head or arched neck. -->
+    <path d="M398 222c-13-5-17-21-10-34 9-17 33-20 46-5l7 21-12-9-16 3-6 20Z" fill="#263551" stroke="#6e7e9f" stroke-width="1.8"/>
+    <path d="M502 222c13-5 17-21 10-34-9-17-33-20-46-5l-7 21 12-9 16 3 6 20Z" fill="#263551" stroke="#6e7e9f" stroke-width="1.8"/>
+    <path d="M390 191c-18 7-29 3-34-8 13 2 14-13 30-13l13 13Z" fill="#263551" stroke="#6e7e9f" stroke-width="1.8"/>
+    <path d="M510 191c18 7 29 3 34-8-13 2-14-13-30-13l-13 13Z" fill="#263551" stroke="#6e7e9f" stroke-width="1.8"/>
+    <path d="m425 218 7 4m43-4-7 4m-42 13 6 2m42-2-6 2" fill="none" stroke-width="2"/>
+    <!-- Near arms: upper-arm control, never hands over faces. -->
+    <path d="M366 234c9-11 24-8 32 4l18 25 63-20 8 20-77 29c-8 3-16 0-21-6l-28-29c-7-7-3-16 5-23Z" fill="#e5b093"/>
+    <path d="m478 244 18-8 11 3 6 12-8 12-19 1Z" fill="#e5b093"/>
+    <path d="M534 234c-9-11-24-8-32 4l-18 25-63-20-8 20 77 29c8 3 16 0 21-6l28-29c7-7 3-16-5-23Z" fill="#e5b093"/>
+    <path d="m422 244-18-8-11 3-6 12 8 12 19 1Z" fill="#e5b093"/>
+    <path d="m398 244-3 9m8-6-2 11m97-14 3 9m-8-6 2 11" fill="none" stroke="#aa7561" stroke-width="1.5"/>
+    <path d="m317 471 11-1m-4 6 11-1m248-4-11-1m4 6-11-1M126 461l12-1m636 1-12-1" fill="none" stroke="#aab6cf" stroke-width="2"/>
+  </g>
+</svg>

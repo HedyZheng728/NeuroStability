@@ -1,0 +1,11 @@
+-r requirements.txt
+# Optional local Qwen3-VL inference. No training or remote model code.
+torch>=2.6,<3
+torchvision>=0.21,<1
+transformers>=5.13,<6
+accelerate>=1.10,<2
+safetensors>=0.5,<1
+opencv-python-headless>=4.10,<6
+Pillow>=10,<13
+psutil>=5.9,<8
+psutil>=5.9,<8

@@ -1,0 +1,55 @@
+.capability-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 16px; padding: 5px; background: #eaeae5; border: 1px solid var(--line); border-radius: 7px; scrollbar-width: thin; }
+.capability-tabs > button { display: flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: 8px; padding: 11px 13px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 550; white-space: nowrap; }
+.capability-tabs > button:hover { color: var(--ink); background: #ffffff88; }
+.capability-tabs > button.active { color: var(--ink); background: white; box-shadow: 0 1px 4px #202b4c16; }
+.capability-tabs i { width: 5px; height: 5px; border-radius: 50%; background: #aeb3bb; }
+.capability-tabs i.ready { background: #347a62; }
+.capability-tabs i.available { background: #8a9aaa; }
+.coach-viewport { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr); gap: 20px; align-items: start; }
+.coach-viewport .video-panel { margin: 0 0 22px; }
+.coach-viewport .media-toolbar { min-height: 41px; justify-content: flex-end; }
+.coach-viewport .video-frame { max-height: 480px; }
+.coach-viewport .media-caption { padding-top: 9px; padding-bottom: 9px; font-size: 12px; }
+.coach-viewport .media-caption + .media-caption { padding-top: 0; }
+.capability-context .panel-heading { padding: 18px 20px; flex-wrap: wrap; gap: 10px; }
+.capability-context .panel-heading h2 { font-size: 16px; }
+.capability-body { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: 20px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.capability-body > p { margin: 0; width: 100%; }
+.capability-number strong { color: var(--ink); font-size: 29px; font-weight: 500; }
+.capability-tracks { width: 100%; max-height: 210px; overflow-y: auto; }
+.capability-tracks > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.capability-tracks strong { color: var(--ink); }
+.capability-progress { width: 100%; border-top: 1px solid var(--line); padding-top: 15px; }
+.capability-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.capability-progress progress { display: block; width: 100%; height: 6px; margin: 12px 0 7px; accent-color: var(--ink); }
+.capability-progress small, .capability-draft small { font-size: 11px; }
+.capability-draft { min-width: 0; width: 100%; }
+.capability-draft pre { margin-top: 8px; max-height: 290px; overflow: auto; white-space: pre-wrap; font: inherit; color: var(--ink); }
+.coach-observation { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; color: var(--ink); }
+.coach-score-summary strong { font-size: 26px; font-weight: 500; color: var(--ink); }
+.coach-review-section { scroll-margin-top: 18px; }
+.coach-review-section .review-layout { grid-template-columns: minmax(0, 1fr); }
+.coach-review-section .review-form { padding: 0; }
+.coach-review-section .draft-area { border: 0; padding: 0; }
+.coach-review-section .review-form textarea { min-height: 95px; }
+.coach-review-section .review-layout > .draft-area { order: 2; border-top: 1px solid var(--line); padding-top: 22px; margin-top: 22px; }
+.coach-advanced { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: #eeeee9; }
+.coach-advanced > summary { padding: 18px 22px; cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 550; }
+.coach-advanced-content { padding: 0 20px 20px; }
+.coach-advanced-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.coach-advanced-grid .panel { margin-bottom: 20px; }
+.coach-advanced .danger-zone { margin-top: 10px; }
+@media (max-width: 1150px) { .coach-advanced-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 800px) {
+  .coach-viewport { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .capability-context .panel-heading { padding: 15px 18px; }
+  .capability-body { padding: 16px 18px; gap: 12px; }
+  .capability-tabs > button { padding: 10px 12px; }
+}
+@media (max-width: 600px) {
+  .coach-advanced-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .coach-advanced-content { padding: 0 12px 12px; }
+  .coach-advanced > summary { padding: 16px; }
+  .capability-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 12px; overflow: visible; }
+  .capability-tabs > button { padding: 10px 3px; gap: 4px; font-size: 12px; }
+}
