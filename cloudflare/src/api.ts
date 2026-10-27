@@ -1,10 +1,14 @@
+import { D1ResultStore } from './result-store';
+import { syncRoute } from './sync';
+import { syncArtifactRoute } from './sync-artifacts';
 import { APIError, authenticate, body, boolean, challenge, choice, cookie, date, json, login, now, number, text } from './auth';
 import { decodeRow, encode, insert, mediaRoute, removePrefix, requireRow, resultHydrate, resultSummary, rows } from './media';
 import { workerRoute } from './jobs';
 import { acceptanceError, analyticsSummary, dateFilters, exportCsv, exportZip, factsFor, planningSummary, readSnapshot, rulesDraft, workspaceToday } from './analytics';
 export interface Env {
     DB: any;
-    MEDIA: any;
+    MEDIA?: any;
+    ARENA_RESULTS_ONLY?: string;
     ASSETS?: {
         fetch: (r: Request) => Promise<Response>;
     };
@@ -43,6 +47,7 @@ async function videoRows(env: Env, filter: {
         v.latest_job = jobs.get(v.id) || null;
         v.review = reviews.get(v.id) || null;
         delete v.storage_key;
+        if (env.ARENA_RESULTS_ONLY === 'true' || env.MEDIA?.resultsOnly) v.media_location = 'local';
     }
     return found;
 }
@@ -99,7 +104,7 @@ async function api(req: Request, env: Env) {
     if (path === '/api/login' && method === 'POST')
         return login(req, env);
     if (path.startsWith('/api/worker/'))
-        return workerRoute(req, env);
+        return await syncArtifactRoute(req, env) || await syncRoute(req, env) || workerRoute(req, env);
     if (!path.startsWith('/api/')) {
         if (env.ASSETS) {
             const response = await env.ASSETS.fetch(req);
@@ -397,6 +402,7 @@ async function api(req: Request, env: Env) {
 function secure(response: Response, req: Request) { const h = new Headers(response.headers); h.set('X-Content-Type-Options', 'nosniff'); h.set('Referrer-Policy', 'same-origin'); h.set('X-Frame-Options', 'DENY'); h.set('Cache-Control', 'no-store'); h.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' https: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"); if (new URL(req.url).protocol === 'https:')
     h.set('Strict-Transport-Security', 'max-age=31536000'); return new Response(response.body, { status: response.status, headers: h }); }
 export default { async fetch(req: Request, env: Env, _ctx: any) { try {
+        if (!env.MEDIA) env = { ...env, MEDIA: new D1ResultStore(env.DB), ARENA_RESULTS_ONLY: 'true' };
         if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
             const origin = req.headers.get('origin'), allowed = env.ARENA_PUBLIC_URL || new URL(req.url).origin;
             if (origin && origin !== allowed)

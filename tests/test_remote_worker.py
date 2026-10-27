@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
+from arena import db
 from arena.config import Settings
 from arena.engine import analyze
 from arena.remote_worker import (RemoteWorker, CHUNK_BYTES, INLINE_RESULT_BYTES, MAX_RESULT_BYTES,
@@ -237,6 +238,160 @@ class RemoteWorkerTests(unittest.TestCase):
         self.assertIn("rtmpose_tracking", self.cloud.models)
         self.assertFalse(self.cloud.models["sample"]["ready"])
         self.assertFalse(self.worker.cycle())
+
+    def local_video(self):
+        self.original_db.unlink()
+        database = db.Database(self.worker.settings)
+        db.meta.create_all(database.engine)
+        stamp = db.now()
+        database.add(db.athletes, dict(id="athlete-local", name="Local", level="", created_at=stamp))
+        database.add(db.sessions, dict(id="session-local", athlete_id="athlete-local", date="2026-10-28",
+                     objective="", duration_min=1, notes="", created_at=stamp))
+        database.add(db.videos, {**self.cloud.claim["video"], "session_id": "session-local", "category": "stability",
+                     "filename": "private.mp4", "storage_key": "videos/video-test/source.mp4", "status": "uploaded",
+                     "authorized_at": stamp, "created_at": stamp})
+        database.engine.dispose()
+        path = self.worker.settings.data_dir / "objects" / "videos/video-test/source.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(self.clip.read_bytes())
+        self.cloud.claim["storage_mode"] = "results-only"
+        return path
+
+    def test_results_only_preprocess_reads_local_video_and_retains_mp4_without_upload(self):
+        self.local_video()
+        original = self.original_db.read_bytes()
+        self.cloud.tamper = True  # Cloud video bytes must never be requested.
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "completed", self.cloud.committed)
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertFalse(self.cloud.uploads)
+        normalized = self.worker.settings.data_dir / "objects/videos/video-test/jobs/job-test/normalized.mp4"
+        self.assertTrue(normalized.is_file())
+        self.assertTrue(all(stream["codec_type"] != "audio" for stream in probe(normalized)[0]["streams"]))
+        self.assertEqual(self.original_db.read_bytes(), original)
+
+    def test_results_only_missing_local_video_is_blocked_without_cloud_download(self):
+        self.local_video().unlink()
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "blocked", self.cloud.committed)
+        self.assertIn("local", self.cloud.committed["error"].lower())
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertFalse(self.cloud.uploads)
+
+    def test_results_only_tampered_local_video_is_blocked(self):
+        self.local_video().write_bytes(b"different private video")
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "blocked", self.cloud.committed)
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertFalse(self.cloud.uploads)
+
+    def test_results_only_rejects_source_path_outside_local_objects(self):
+        self.local_video()
+        database = db.Database(self.worker.settings)
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql("UPDATE videos SET storage_key = ? WHERE id = ?",
+                                       ("../private.mp4", "video-test"))
+        database.engine.dispose()
+        outside = self.worker.settings.data_dir / "private.mp4"
+        outside.write_bytes(self.clip.read_bytes())
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "blocked", self.cloud.committed)
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertEqual(outside.read_bytes(), self.clip.read_bytes())
+
+    def test_results_only_rejects_remote_task_path_traversal(self):
+        self.cloud.claim["storage_mode"] = "results-only"
+        self.cloud.claim["job"]["id"] = "../outside-job"
+        with self.assertRaisesRegex(ValueError, "identifier"):
+            self.worker.cycle()
+        self.assertFalse(self.cloud.uploads)
+        self.assertFalse(list((self.folder / "outbox").glob("task-*")))
+
+    def local_pose(self):
+        self.local_video()
+        normalized = self.folder / "cached-normalized.mp4"
+        metadata = preprocess(self.clip, normalized, self.worker.settings)
+        pose = {"schema_version": 1, "layout": "coco17", "synthetic": False, "backend": "rtmpose_tracking",
+                "width": metadata["width"], "height": metadata["height"], "sample_fps": 10,
+                "frames": [{"t": i / 10, "people": []} for i in range(4)]}
+        artifacts = {"normalized.mp4": normalized.read_bytes(), "pose.json": json.dumps(pose).encode()}
+        prefix = self.worker.settings.data_dir / "objects/videos/video-test/jobs/prior-job"
+        prefix.mkdir(parents=True)
+        for name, content in artifacts.items():
+            (prefix / name).write_bytes(content)
+        job = self.cloud.claim["job"]
+        job.update(backend="rtmpose_tracking", params={"source_pose_job_id": "prior-job"})
+        self.cloud.claim["source_job"] = {**job, "id": "prior-job", "status": "needs_review", "params": {},
+            "metadata": metadata, "result": {"synthetic": False}, "artifacts": {
+                name: {"size_bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+                for name, content in artifacts.items()}}
+        # D1 has JSON descriptors but no video artifact descriptor in results-only mode.
+        self.cloud.claim["source_job"]["artifacts"].pop("normalized.mp4")
+        return prefix, artifacts
+
+    def test_results_only_reuses_local_pose_cache_and_uploads_only_json(self):
+        prefix, _ = self.local_pose()
+        self.worker.cycle()
+        complete = self.cloud.committed
+        self.assertEqual(complete["status"], "needs_review", complete)
+        self.assertEqual(complete["result"]["source_pose_job_id"], "prior-job")
+        self.assertEqual(set(self.cloud.uploads), {"pose.json"})
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertTrue((prefix.parent / "job-test/pose.json").is_file())
+
+    def test_results_only_fetches_missing_json_cache_but_keeps_video_local(self):
+        prefix, artifacts = self.local_pose()
+        (prefix / "pose.json").unlink()
+        self.cloud.source_artifacts = artifacts
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "needs_review", self.cloud.committed)
+        self.assertEqual(sum(path.endswith("/source") for _, path in self.cloud.events), 1)
+        self.assertEqual(set(self.cloud.uploads), {"pose.json"})
+
+    def test_results_only_missing_normalized_cache_is_blocked_without_downloading_video(self):
+        prefix, _ = self.local_pose()
+        (prefix / "normalized.mp4").unlink()
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "blocked", self.cloud.committed)
+        self.assertFalse(any(path.endswith("/source") for _, path in self.cloud.events))
+        self.assertFalse(self.cloud.uploads)
+
+    def test_results_only_review_does_not_require_local_media(self):
+        self.cloud.claim["storage_mode"] = "results-only"
+        job = self.cloud.claim["job"]
+        job.update(backend="review_draft", params={"job_id": "analysis-test", "provider": "rules", "language": "en"})
+        self.cloud.claim["source_job"] = {"id": "analysis-test", "video_id": "video-test", "result": {
+            "kind": "segmentation", "synthetic": False, "method_version": "fixture-evidence",
+            "segmentation": {"segmented_frames": 2, "total_frames": 3, "object_count": 1}}}
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "completed", self.cloud.committed)
+        self.assertIn("2/3", self.cloud.committed["draft"]["text"])
+        self.assertFalse(self.cloud.uploads)
+
+    def test_results_only_option_prevents_media_upload_from_legacy_retry_journal(self):
+        self.worker.results_only = True
+        folder = self.folder / "outbox/task-old-journal"
+        artifact = folder / "objects/videos/video-test/jobs/job-test/normalized.mp4"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_bytes(self.clip.read_bytes())
+        state = {"claim": self.cloud.claim, "complete": {"worker_token": "lease-test", "status": "failed",
+                 "stage": "Transport test only", "metadata": None, "result": None, "error": "test fixture"},
+                 "artifacts": {"normalized.mp4": {"size_bytes": artifact.stat().st_size,
+                     "sha256": digest(artifact), "content_type": "video/mp4"}}}
+        save_json(folder / "state.json", state)
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "failed")
+        self.assertFalse(self.cloud.uploads)
+
+    def test_results_only_local_artifacts_never_replace_existing_bytes(self):
+        self.local_video()
+        normalized = self.worker.settings.data_dir / "objects/videos/video-test/jobs/job-test/normalized.mp4"
+        normalized.parent.mkdir(parents=True)
+        normalized.write_bytes(b"existing artifact must remain")
+        self.worker.cycle()
+        self.assertEqual(self.cloud.committed["status"], "failed", self.cloud.committed)
+        self.assertEqual(normalized.read_bytes(), b"existing artifact must remain")
+        self.assertFalse(self.cloud.uploads)
 
     def test_transient_commit_survives_process_restart_without_reprocessing(self):
         self.cloud.fail_commit = 1

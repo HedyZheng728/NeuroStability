@@ -1,10 +1,12 @@
 """Outgoing Cloudflare worker. All computation and retry data stay in a private outbox.
 
 Run ``python -m arena.remote_worker`` with ARENA_CLOUD_URL and ARENA_WORKER_TOKEN.
-The existing local database is never opened: each claim gets its own SQLite database.
+Each claim computes in its own SQLite database. Results-only claims read the local
+video catalog without modifying it and retain media in the local object store.
 """
 import argparse
 import copy
+from contextlib import closing
 from dataclasses import replace
 import fcntl
 import hashlib
@@ -13,9 +15,11 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import signal
+import sqlite3
 import stat
 import threading
 import time
@@ -24,6 +28,7 @@ from uuid import uuid4
 
 import httpx
 from sqlalchemy import update
+from sqlalchemy.engine import make_url
 
 from . import db
 from .backends import model_status
@@ -43,6 +48,10 @@ DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "data" / "cloudflare-work
 
 class StaleLease(LeaseLost):
     """The server revoked or expired the claim; private results must not publish."""
+
+
+class LocalSourceUnavailable(ValueError):
+    """A results-only claim requires matching media on this computer."""
 
 
 def digest(path):
@@ -146,7 +155,7 @@ def discover_settings(settings=None, root=None):
 
 class RemoteWorker:
     def __init__(self, url, token, outbox, *, settings=None, worker_id=None,
-                 heartbeat_interval=30, timeout=30):
+                 heartbeat_interval=30, timeout=30, results_only=False):
         loopback = validate_url(url)
         if not token or any(c in token for c in "\r\n"):
             raise ValueError("ARENA_WORKER_TOKEN is required")
@@ -173,6 +182,14 @@ class RemoteWorker:
                 out.write(worker_id or str(uuid4()))
         self.worker_id = identity.read_text().strip()
         self.settings = discover_settings(settings)
+        self.results_only = results_only
+        if results_only and not self.settings.review_model_path and self.settings.llm_base_url:
+            host = urlsplit(self.settings.llm_base_url).hostname or ''
+            try: local_language_server = ipaddress.ip_address(host).is_loopback
+            except ValueError: local_language_server = host == 'localhost'
+            if not local_language_server:
+                # A local-results deployment must not silently invoke a paid remote language API.
+                self.settings = replace(self.settings, llm_base_url='', llm_key='', llm_model='')
         self.heartbeat_interval = heartbeat_interval
         self.models, self.last_advertised = None, 0
         self.client = httpx.Client(base_url=url.rstrip("/") + "/api/worker/", timeout=timeout,
@@ -263,6 +280,98 @@ class RemoteWorker:
             return sha.hexdigest()
         finally:
             partial.unlink(missing_ok=True)
+
+    def local_store(self):
+        root = self.settings.data_dir / "objects"
+        if not root.is_dir():
+            raise LocalSourceUnavailable("Local video storage is unavailable on this computer")
+        return LocalStore(root)
+
+    def local_video(self, claim):
+        """Read the original SQLite catalog without initialization, migrations or writes."""
+        url = make_url(self.settings.database_url or f"sqlite:///{self.settings.data_dir / 'arena.db'}")
+        if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
+            raise LocalSourceUnavailable("Results-only inference requires a local SQLite video catalog")
+        try:
+            with closing(sqlite3.connect(Path(url.database).resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute("SELECT id, sha256, size_bytes, storage_key FROM videos WHERE id = ?",
+                                         (claim["video"]["id"],)).fetchone()
+        except sqlite3.Error as exc:
+            raise LocalSourceUnavailable("Local video catalog is unavailable") from exc
+        video = claim["video"]
+        if (not row or not re.fullmatch(r"[0-9a-f]{64}", video.get("sha256", ""))
+                or row["sha256"] != video["sha256"] or row["size_bytes"] != video["size_bytes"]):
+            raise LocalSourceUnavailable("Local video id, checksum or size does not match the cloud task")
+        try:
+            path = self.local_store().path(row["storage_key"])
+        except ValueError as exc:
+            raise LocalSourceUnavailable("Local video storage path is invalid") from exc
+        if not path.is_file():
+            raise LocalSourceUnavailable("Local source video is missing; restore the video on this computer")
+        return path
+
+    @staticmethod
+    def copy_checked(source, destination, expected):
+        """Verify the copied bytes too, so a changing source cannot reach inference."""
+        try:
+            shutil.copyfile(source, destination)
+        except FileNotFoundError as exc:
+            raise LocalSourceUnavailable("Local source video or cached artifact is missing") from exc
+        checksum = digest(destination)
+        if (expected.get("size_bytes") is not None and destination.stat().st_size != expected["size_bytes"]
+                or expected.get("sha256") and checksum != expected["sha256"]):
+            destination.unlink(missing_ok=True)
+            raise LocalSourceUnavailable("Local source checksum or size mismatch")
+        return checksum
+
+    def prepare_local_sources(self, claim, local, state):
+        source = self.local_video(claim)
+        source_job = claim.get("source_job")
+        if not claim["job"].get("params", {}).get("source_pose_job_id"):
+            state["source_sha256"] = self.copy_checked(source, local.store.path("source"), claim["video"])
+            return
+        # Even a cached pose must belong to this locally verified source video.
+        if source.stat().st_size != claim["video"]["size_bytes"] or digest(source) != claim["video"]["sha256"]:
+            raise LocalSourceUnavailable("Local source checksum or size mismatch")
+        prefix = f"videos/{claim['video']['id']}/jobs/{source_job['id']}/"
+        store = self.local_store()
+        for name in ("normalized.mp4", "pose.json"):
+            destination = local.store.path(prefix + name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            cached = store.path(prefix + name)
+            descriptor = source_job.get("artifacts", {}).get(name, {})
+            if cached.is_file():
+                self.copy_checked(cached, destination, descriptor)
+            elif name == "pose.json":
+                self.download(claim, name, destination, descriptor)
+            else:
+                raise LocalSourceUnavailable("Local normalized video is missing; rerun its source analysis on this computer")
+
+    def retain_local_artifacts(self, folder, state):
+        """Atomically add computed files, preserving any existing local artifact."""
+        if state["complete"]["status"] not in ("completed", "needs_review"):
+            return
+        claim = state["claim"]
+        prefix = f"videos/{claim['video']['id']}/jobs/{claim['job']['id']}/"
+        store = None
+        for name in ARTIFACTS:
+            source = folder / "objects" / prefix / name
+            if not source.is_file():
+                continue
+            store = store or self.local_store()
+            destination = store.path(prefix + name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name("." + name + "." + uuid4().hex + ".tmp")
+            try:
+                self.copy_checked(source, temporary, {"sha256": digest(source), "size_bytes": source.stat().st_size})
+                try:
+                    os.link(temporary, destination)
+                except FileExistsError:
+                    if not destination.is_file() or digest(destination) != digest(temporary):
+                        raise ValueError("Existing local artifact differs; refusing to overwrite it") from None
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def local_context(self, folder, claim):
         """Only the claim's isolated database is initialized, never Settings.database_url."""
@@ -364,7 +473,9 @@ class RemoteWorker:
                     Path(str(folder / "task.db") + suffix).unlink(missing_ok=True)
                 local = self.local_context(folder, claim)
                 source_job = claim.get("source_job")
-                if claim["job"].get("params", {}).get("source_pose_job_id"):
+                if claim.get("storage_mode") == "results-only":
+                    self.prepare_local_sources(claim, local, state)
+                elif claim["job"].get("params", {}).get("source_pose_job_id"):
                     prefix = f"videos/{claim['video']['id']}/jobs/{source_job['id']}/"
                     for name in ("normalized.mp4", "pose.json"):
                         destination = local.store.path(prefix + name)
@@ -388,6 +499,8 @@ class RemoteWorker:
             state["artifacts"] = {}
             prefix = folder / "objects" / "videos" / claim["video"]["id"] / "jobs" / claim["job"]["id"]
             for name, content_type in ARTIFACTS.items():
+                if claim.get("storage_mode") == "results-only" and content_type != "application/json":
+                    continue
                 path = prefix / name
                 if path.is_file():
                     state["artifacts"][name] = dict(size_bytes=path.stat().st_size, sha256=digest(path),
@@ -400,7 +513,7 @@ class RemoteWorker:
                 local.db.engine.dispose()
 
     def prepare_result(self, folder, state):
-        """Keep dense per-frame results in private R2, with bounded D1 summaries."""
+        """Keep dense per-frame results in result storage, with bounded summaries."""
         complete = state["complete"]
         result = complete.get("result")
         if not result or complete.get("result_artifact"):
@@ -438,6 +551,12 @@ class RemoteWorker:
             self.request("POST", endpoint + "/complete", json=complete)
             return
         self.prepare_result(folder, state)
+        if claim.get("storage_mode") == "results-only":
+            self.retain_local_artifacts(folder, state)
+            # Also enforce this when resuming an older private journal.
+            state["artifacts"] = {name: artifact for name, artifact in state["artifacts"].items()
+                                  if ARTIFACTS.get(name) == "application/json"}
+            save_json(folder / "state.json", state)
         self.heartbeat(claim)
         for name, artifact in state["artifacts"].items():
             if artifact.get("uploaded"):
@@ -484,10 +603,14 @@ class RemoteWorker:
             if response.status_code == 204 or not response.content:
                 return False
             claim = response.json()
+            if self.results_only:
+                claim["storage_mode"] = "results-only"
             for identifier in (claim["job"]["id"], claim["video"]["id"],
                                (claim.get("source_job") or {}).get("id", "source")):
-                if not isinstance(identifier, str) or not identifier or any(c in identifier for c in "/\\") or identifier in (".", ".."):
+                if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier):
                     raise ValueError("Invalid remote task identifier")
+            if claim["job"]["video_id"] != claim["video"]["id"]:
+                raise ValueError("Remote task video does not match")
             folder = self.outbox / ("task-" + uuid4().hex)
             folder.mkdir(mode=0o700)
             state = {"claim": claim}
@@ -495,6 +618,8 @@ class RemoteWorker:
             pending = [folder / "state.json"]
         for journal in pending:
             folder, state = journal.parent, json.loads(journal.read_text())
+            if self.results_only:
+                state["claim"]["storage_mode"] = "results-only"
             try:
                 if "complete" not in state:
                     self.heartbeat(state["claim"])
@@ -508,8 +633,10 @@ class RemoteWorker:
                 # Invalid input must not be retried forever or silently publish results.
                 log.warning("Remote task rejected: %s", exc)
                 state["complete"] = {
-                    "worker_token": state["claim"]["job"]["worker_token"], "status": "failed",
-                    "stage": "输入校验或处理失败", "metadata": None, "result": None, "error": str(exc)}
+                    "worker_token": state["claim"]["job"]["worker_token"],
+                    "status": "blocked" if isinstance(exc, LocalSourceUnavailable) else "failed",
+                    "stage": "本机源视频不可用" if isinstance(exc, LocalSourceUnavailable) else "输入校验或处理失败",
+                    "metadata": None, "result": None, "error": str(exc)}
                 if state.get("source_sha256"):
                     state["complete"]["source_sha256"] = state["source_sha256"]
                 state["artifacts"] = {}
@@ -543,6 +670,7 @@ def main():
     parser.add_argument("--url")
     parser.add_argument("--outbox", type=Path, default=Path(os.getenv("ARENA_WORKER_OUTBOX", "data/remote-outbox")))
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--results-only", action="store_true", help="Use local videos; synchronize JSON results only")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     # Outbox video data, SQLite files and journals are private, including library writes.
@@ -554,7 +682,7 @@ def main():
     url, token = connection_config(args.config, args.url)
     if not url or not token:
         parser.exit(2, "尚未配置云端分析。请先运行 python -m arena.remote_worker --configure https://你的域名，或设置 ARENA_CLOUD_URL 和 ARENA_WORKER_TOKEN。\n")
-    worker = RemoteWorker(url, token, args.outbox)
+    worker = RemoteWorker(url, token, args.outbox, results_only=args.results_only)
     stop = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, lambda *_: stop.set())

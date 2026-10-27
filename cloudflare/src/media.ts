@@ -1,5 +1,7 @@
 import { APIError, body, boolean, choice, epoch, json, now, number, sha256, text } from './auth';
 export const PART_SIZE = 8 * 1024 * 1024;
+export const resultsOnly = (env: any) => env.ARENA_RESULTS_ONLY === 'true' || env.MEDIA?.resultsOnly === true;
+export function localMediaOnly(): never { throw new APIError(409, 'local_media_only: 视频与模型保留在本地，请在本地导入和分析；云端仅保存 JSON 结果'); }
 const categories = ['stability', 'footwork', 'attack', 'defense', 'mixed'];
 export const MAX_RESULT_BYTES = 16 * 1024 * 1024;
 export function compactResult(result: any) {
@@ -86,7 +88,7 @@ export async function storedFile(req: Request, env: any, key: string, type: stri
         throw new APIError(404, '文件不存在');
     return new Response(object.body, { status, headers });
 }
-export async function jobArtifactKey(env: any, job: any, name: string) { const published = await env.DB.prepare('SELECT a.storage_key FROM job_artifacts a JOIN worker_completions c ON c.job_id=a.job_id AND c.worker_token=a.worker_token WHERE a.job_id=? AND a.name=?').bind(job.id, name).first(); return published?.storage_key || `videos/${job.video_id}/jobs/${job.id}/${name}`; }
+export async function jobArtifactKey(env: any, job: any, name: string) { const published = await env.DB.prepare('SELECT a.storage_key FROM job_artifacts a JOIN worker_completions c ON c.job_id=a.job_id AND c.worker_token=a.worker_token WHERE a.job_id=? AND a.name=?').bind(job.id, name).first(); const historical = published ? null : await env.DB.prepare("SELECT storage_key FROM job_artifacts WHERE job_id=? AND name=? AND worker_token='historical-sync'").bind(job.id, name).first(); return published?.storage_key || historical?.storage_key || `videos/${job.video_id}/jobs/${job.id}/${name}`; }
 function uploadPayload(p: any) { const filename = text(p.filename, 200, 1).replace(/\\/g, '/').split('/').pop()!; if (!/\.(mp4|mov|webm|mkv|m4v)$/i.test(filename))
     throw new APIError(422, '支持 MP4、MOV、WebM、MKV、M4V 视频'); if (!boolean(p.authorized))
     throw new APIError(422, '请确认已获得视频中所有相关人员的上传和分析授权'); if (p.sha256 !== undefined && p.sha256 !== '' && (typeof p.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(p.sha256)))
@@ -97,7 +99,8 @@ export async function mediaRoute(req: Request, env: any): Promise<Response | nul
     const path = new URL(req.url).pathname;
     let m;
     if (path === '/api/upload-config' && req.method === 'GET')
-        return json({ mode: 'multipart', max_size_bytes: 512 * 1024 * 1024, part_size: PART_SIZE });
+        return resultsOnly(env) ? json({ mode: 'local', max_size_bytes: 512 * 1024 * 1024, max_result_bytes: MAX_RESULT_BYTES }) : json({ mode: 'multipart', max_size_bytes: 512 * 1024 * 1024, part_size: PART_SIZE });
+    if (resultsOnly(env) && ((path === '/api/videos' && req.method === 'POST') || path === '/api/uploads' || path.startsWith('/api/uploads/') || /^\/api\/(videos|jobs)\/[^/]+\/media$/.test(path))) localMediaOnly();
     if (path === '/api/uploads' && req.method === 'POST') {
         const p = uploadPayload(await body(req, ['session_id', 'category', 'authorized', 'filename', 'size_bytes', 'sha256']));
         await requireRow(env, 'sessions', p.session_id);

@@ -35,15 +35,16 @@ function nearestFrame<T extends { t: number }>(pose: { frames: T[] }, time: numb
   const frame = pose.frames[low];
   return frame && Math.abs(frame.t - time) < tolerance ? frame : null;
 }
-export default function PosePlayer({ videoId, job, seekTime, onTime, preferredMode = 'original', showModeControls = true }: { videoId: string; job: Job | undefined; seekTime: number | null; onTime: (time: number) => void; preferredMode?: 'original' | 'analysis'; showModeControls?: boolean }) {
+export default function PosePlayer({ videoId, job, seekTime, onTime, preferredMode = 'original', showModeControls = true, resultsOnly = false }: { videoId: string; job: Job | undefined; seekTime: number | null; onTime: (time: number) => void; preferredMode?: 'original' | 'analysis'; showModeControls?: boolean; resultsOnly?: boolean }) {
   const [mode, setMode] = useState<'original' | 'analysis'>(preferredMode);
   const [time, setTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(true);
   const [mediaError, setMediaError] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
   const video = useRef<HTMLVideoElement>(null);
   const pendingSeek = useRef<number | null>(null);
-  const offset = typeof job?.metadata?.time_offset === 'number' ? job.metadata.time_offset : 0;
+  const offset = typeof job?.metadata?.time_offset === 'number' && Number.isFinite(job.metadata.time_offset) ? job.metadata.time_offset : 0;
   const hasPose = !!job?.result?.metrics && (job.backend === 'rtmpose' || job.backend === 'rtmpose_tracking' || job.backend === 'sample');
   const hasProcessedMedia = !!job?.metadata;
   const poseState = useData(() => hasPose && job ? api<Pose>(`/jobs/${job.id}/pose`).then(value => ({ jobId: job.id, value })) : Promise.resolve(null), [job?.id, hasPose]);
@@ -53,15 +54,33 @@ export default function PosePlayer({ videoId, job, seekTime, onTime, preferredMo
   const pose = hasPose && poseState.data?.jobId === job?.id ? poseState.data.value : null;
   const maskFrame = segmentation && mode === 'analysis' ? nearestFrame(segmentation, time, 0.3) : null;
   const overlay = pose || segmentation;
+  const storedDuration = typeof job?.metadata?.duration === 'number' ? job.metadata.duration : 0;
+  const lastTime = overlay?.frames.at(-1)?.t || 0;
+  const duration = Number.isFinite(storedDuration) && storedDuration > 0 ? storedDuration : Number.isFinite(lastTime) ? Math.max(0, lastTime) : 0;
+  const standalone = resultsOnly && mode === 'analysis' && !!overlay;
+  function seekResult(value: number) { setPlaying(false); setTime(Number.isFinite(value) ? Math.max(0, Math.min(duration, value)) : 0); }
   const frame = pose && mode === 'analysis' ? nearestFrame(pose, time) : null;
   const isTracking = job?.backend === 'rtmpose_tracking';
   const requestedFps = typeof job?.result?.sample_fps === 'number' ? job.result.sample_fps : 10;
   const sourceFps = typeof job?.metadata?.fps === 'number' ? job.metadata.fps : requestedFps;
   const trails = pose && mode === 'analysis' && isTracking && showTrails ? trackTrails(pose, time, Math.min(requestedFps, sourceFps)) : [];
   useEffect(() => { setMode(preferredMode); setMediaError(false); }, [job?.id, preferredMode]);
-  useEffect(() => { setMediaError(false); setTime(0); }, [mode]);
+  useEffect(() => { setMediaError(false); setTime(0); setPlaying(false); }, [mode, job?.id]);
+  useEffect(() => {
+    if (!standalone || !playing || duration <= 0) return;
+    const start = performance.now(); const startTime = time;
+    const timer = window.setInterval(() => {
+      const next = Math.min(duration, startTime + (performance.now() - start) / 1000);
+      setTime(next);
+      if (next >= duration) setPlaying(false);
+    }, 50);
+    return () => window.clearInterval(timer);
+    // Seeking pauses playback; the next play action captures the new time.
+  }, [standalone, playing, duration, job?.id]);
+  useEffect(() => { if (standalone) onTime(time + offset); }, [standalone, time, offset, onTime]);
   useEffect(() => {
     if (seekTime === null) return;
+    if (resultsOnly) { seekResult(seekTime - offset); return; }
     const duration = typeof job?.metadata?.duration === 'number' ? job.metadata.duration : 0;
     if (preferredMode === 'analysis' && mode === 'analysis' && seekTime >= offset && seekTime <= offset + duration) {
       const localTime = seekTime - offset;
@@ -72,22 +91,23 @@ export default function PosePlayer({ videoId, job, seekTime, onTime, preferredMo
     if (mode === 'analysis') { pendingSeek.current = seekTime; setMode('original'); }
     else if (video.current) { video.current.currentTime = seekTime; video.current.pause(); }
     // Event markers always seek to the original source video timeline.
-  }, [seekTime]);
+  }, [seekTime, resultsOnly, duration, offset]);
   return <div className="media-section">{showModeControls || mode === 'analysis' && (hasPose || hasSegmentation) ? <div className="media-toolbar">{showModeControls ? <div className="tabs compact"><button className={mode === 'original' ? 'active' : ''} onClick={() => setMode('original')}>{t("原始视频")}</button>{hasProcessedMedia ? <button className={mode === 'analysis' ? 'active' : ''} onClick={() => setMode('analysis')}>{hasSegmentation ? tx("Analysis / person masks", "分析视频 / 人物分割") : hasPose ? t("分析视频 / 2D 骨架") : t("预处理视频")}</button> : null}</div> : null}{mode === 'analysis' && isTracking ? <label className="checkbox-label" title={tx('Image-plane box centers', '画面内检测框中心轨迹')}><input type="checkbox" checked={showTrails} onChange={event => setShowTrails(event.target.checked)} />{tx('Track trails', '移动轨迹')}</label> : null}{mode === 'analysis' && (hasPose || hasSegmentation) ? <label className="checkbox-label"><input type="checkbox" checked={showSkeleton} onChange={event => setShowSkeleton(event.target.checked)} />{hasSegmentation ? tx("Show masks", "显示遮罩") : t("显示骨架")}</label> : null}</div> : null}
     {mode === 'analysis' && job?.result?.synthetic ? <div className="notice sample-notice"><Synthetic value /><p>{t("以下骨架为合成样例，仅用于验证播放和报告流程，不代表画面中运动员的真实动作或成绩。")}</p></div> : null}
-    <div className="video-frame" style={{ aspectRatio: overlay && mode === 'analysis' ? `${overlay.width}/${overlay.height}` : '16/9' }}>
-      <video ref={video} key={`${videoId}-${job?.id}-${mode}`} controls preload="metadata" playsInline src={mode === 'analysis' && job ? `/api/jobs/${job.id}/media` : `/api/videos/${videoId}/media`} onLoadedMetadata={event => { if (pendingSeek.current !== null) { event.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }} onTimeUpdate={event => { const value = event.currentTarget.currentTime; setTime(value); onTime(value + (mode === 'analysis' ? offset : 0)); }} onError={() => setMediaError(true)} />
+    {resultsOnly && !standalone ? <div className="empty"><h3>{mode === 'original' ? tx('Original video stays on the analysis computer', '原始视频保留在分析电脑上') : tx('No saved visualization', '暂无已保存的可视化结果')}</h3><p>{mode === 'original' ? tx('Open the local workspace on your analysis computer to watch the original.', '在分析电脑上打开本地工作区，即可查看原片。') : poseState.loading || segmentState.loading ? tx('Loading results…', '正在加载结果…') : tx('Run this analysis on your computer to view its results here.', '在电脑上运行此分析后，即可在这里查看结果。')}</p></div> : <div className="video-frame" style={{ aspectRatio: overlay && mode === 'analysis' ? `${overlay.width}/${overlay.height}` : '16/9' }}>
+      {!resultsOnly ? <video ref={video} key={`${videoId}-${job?.id}-${mode}`} controls preload="metadata" playsInline src={mode === 'analysis' && job ? `/api/jobs/${job.id}/media` : `/api/videos/${videoId}/media`} onLoadedMetadata={event => { if (pendingSeek.current !== null) { event.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }} onTimeUpdate={event => { const value = event.currentTarget.currentTime; setTime(value); onTime(value + (mode === 'analysis' ? offset : 0)); }} onError={() => setMediaError(true)} /> : null}
       {pose && trails.length ? <svg className="pose-overlay" viewBox={`0 0 ${pose.width} ${pose.height}`} preserveAspectRatio="xMidYMid meet" aria-label={tx('Image-plane box centers', '画面内检测框中心轨迹')}><title>{tx('Track trails', '移动轨迹')}</title>{trails.map((trail, index) => <polyline key={`${trail.track_id}:${index}`} data-track-id={trail.track_id} points={trail.points.map(point => point.join(',')).join(' ')} fill="none" stroke={trail.track_id % 2 ? '#27efbd' : '#ffb94f'} strokeWidth={Math.max(pose.width / 180, 3)} strokeOpacity="0.85" strokeLinecap="round" strokeLinejoin="round" />)}</svg> : null}
       {mode === 'analysis' && segmentation && maskFrame && showSkeleton ? <svg className="pose-overlay" viewBox={`0 0 ${segmentation.width} ${segmentation.height}`} preserveAspectRatio="xMidYMid meet" aria-label={tx('SAM2 person masks', 'SAM2 人物遮罩')}>{maskFrame.masks.map(mask => <g key={mask.object_id} fill={mask.object_id % 2 ? '#27efbd' : '#ffb94f'} stroke={mask.object_id % 2 ? '#27efbd' : '#ffb94f'} strokeWidth="2">{mask.polygons.map((polygon,index) => <polygon key={index} points={polygon.map(point=>point.join(',')).join(' ')} fillOpacity="0.3" />)}</g>)}</svg> : null}
       {mode === 'analysis' && pose && frame && showSkeleton ? <svg className="pose-overlay" viewBox={`0 0 ${pose.width} ${pose.height}`} preserveAspectRatio="xMidYMid meet" aria-label={t("当前画面的二维姿态骨架")}>{frame.people.map((person, personIndex) => <g key={person.track_id ?? `unassigned-${personIndex}`} stroke={person.track_id == null ? '#abb8ca' : person.track_id % 2 ? '#27efbd' : '#ffb94f'} fill={person.track_id == null ? '#abb8ca' : person.track_id % 2 ? '#27efbd' : '#ffb94f'} strokeWidth={Math.max(pose.width / 250, 2)}>{person.bbox ? <><rect x={person.bbox[0]} y={person.bbox[1]} width={person.bbox[2]-person.bbox[0]} height={person.bbox[3]-person.bbox[1]} fill="none" strokeDasharray={person.track_id == null ? '6 4' : undefined} /><text x={person.bbox[0]+5} y={Math.max(22,person.bbox[1]-5)} fontSize={Math.max(18,pose.width/40)} stroke="#14213d" strokeWidth="1" paintOrder="stroke">{person.track_id == null ? '—' : `T${person.track_id}`}</text></> : null}{bones.map(([from, to]) => {
         const a = person.keypoints[from]; const b = person.keypoints[to]; return a?.[2] >= .3 && b?.[2] >= .3 ? <line key={`${from}-${to}`} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /> : null;
       })}{person.keypoints.map(([x, y, confidence], index) => confidence >= .3 ? <circle key={index} cx={x} cy={y} r={Math.max(pose.width / 180, 2.5)} stroke="#102c40" strokeWidth="1" /> : null)}</g>)}</svg> : null}
-    </div>
+    </div>}
+    {standalone ? <div className="media-toolbar"><button type="button" className="button secondary small" disabled={duration <= 0} onClick={() => { if (time >= duration) setTime(0); setPlaying(value => !value); }}>{playing ? tx('Pause', '暂停') : tx('Play', '播放')}</button><input type="range" min={0} max={duration} step="0.01" value={Math.min(time, duration)} disabled={duration <= 0} aria-label={tx('Analysis timeline', '分析时间轴')} onChange={event => seekResult(Number(event.target.value))} style={{ flex: 1, minWidth: 0 }} /><span className="muted">{time.toFixed(2)} / {duration.toFixed(2)} s</span></div> : null}
     {mediaError ? <p className="notice error" role="alert">{t("视频无法播放。请检查媒体是否仍可用，或下载后使用本地播放器查看。")}</p> : null}
     {mode === 'analysis' && poseState.error ? <p className="notice error" role="alert">{t("骨架数据加载失败：")}{t(poseState.error)}</p> : null}
     {mode === 'analysis' && segmentState.error ? <p className="notice error" role="alert">{segmentState.error}</p> : null}
     {mode === 'analysis' && hasSegmentation ? <p className="media-caption">SAM2 · 2 Hz</p> : null}
-    <p className="media-caption">{mode === 'analysis' ? tx(`Source ${(time + offset).toFixed(2)} s · Clip offset ${offset.toFixed(2)} s`, `原片 ${(time + offset).toFixed(2)} 秒 · 片段起点 ${offset.toFixed(2)} 秒`) : tx(`Source ${time.toFixed(2)} s`, `原片 ${time.toFixed(2)} 秒`)}</p>
+    {!resultsOnly || standalone ? <p className="media-caption">{mode === 'analysis' ? tx(`Source ${(time + offset).toFixed(2)} s · Clip offset ${offset.toFixed(2)} s`, `原片 ${(time + offset).toFixed(2)} 秒 · 片段起点 ${offset.toFixed(2)} 秒`) : tx(`Source ${time.toFixed(2)} s`, `原片 ${time.toFixed(2)} 秒`)}</p> : null}
     {mode === 'analysis' && hasPose ? <p className="media-caption">{tx('Low confidence points hidden. Colors do not confirm athlete identity.', '低置信度点已隐藏；颜色不代表身份确认。')}</p> : null}
   </div>;
 }

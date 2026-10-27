@@ -50,7 +50,7 @@ export async function loginAccount<T>(username: string, password: string): Promi
   return post<T>('/login', { username, challenge_id: challenge.challenge_id, proof });
 }
 
-export type UploadConfig = { mode: 'multipart' | 'legacy'; max_size_bytes: number; part_size: number };
+export type UploadConfig = { mode: 'multipart' | 'legacy' | 'local'; max_size_bytes: number; part_size: number };
 export async function uploadConfig(): Promise<UploadConfig> {
   try { return await api<UploadConfig>('/upload-config'); }
   catch (error) {
@@ -60,6 +60,7 @@ export async function uploadConfig(): Promise<UploadConfig> {
 }
 
 export async function uploadVideo<T>(file: File, fields: Record<string, string | boolean>, config: UploadConfig, progress?: (fraction: number) => void, signal?: AbortSignal): Promise<T> {
+  if (config.mode === 'local') throw new ApiError('Upload videos on the analysis computer / 请在分析电脑上传视频', 409);
   if (!file.size || file.size > config.max_size_bytes) throw new ApiError('Video exceeds the upload size limit', 413);
   progress?.(0);
   if (config.mode === 'legacy') {

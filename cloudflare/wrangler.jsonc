@@ -16,7 +16,6 @@
     "database_id": "REPLACE_WITH_CREATED_D1_DATABASE_ID",
     "migrations_dir": "migrations"
   }],
-  "r2_buckets": [{"binding": "MEDIA", "bucket_name": "neurostability-private"}],
-  "vars": {"ARENA_TIMEZONE": "Asia/Shanghai"},
+  "vars": {"ARENA_TIMEZONE": "Asia/Shanghai", "ARENA_RESULTS_ONLY": "true"},
   "observability": {"enabled": false}
 }

@@ -10,7 +10,8 @@ test('GitHub build injects resource IDs and preserves all private bindings witho
   const config = createDeployConfig(base, { ...valid, R2_BUCKET_NAME: 'athlete-private', ARENA_WORKER_TOKEN: 'never-in-build-output', CLOUDFLARE_API_TOKEN: 'never-in-build-output' });
   assert.equal(config.d1_databases[0].database_id, valid.CLOUDFLARE_DATABASE_ID);
   assert.equal(config.account_id, valid.CLOUDFLARE_ACCOUNT_ID);
-  assert.equal(config.r2_buckets[0].bucket_name, 'athlete-private');
+  assert.equal(config.r2_buckets, undefined);
+  assert.equal(config.vars.ARENA_RESULTS_ONLY, 'true');
   assert.equal(config.assets.directory, '../frontend/dist');
   assert.equal(config.keep_vars, true);
   assert.ok(!JSON.stringify(config).includes('never-in-build-output'));
@@ -22,5 +23,5 @@ test('production build refuses missing IDs and nonproduction branches before dep
   assert.throws(() => createDeployConfig(base, {}), /CLOUDFLARE_DATABASE_ID/);
   assert.throws(() => createDeployConfig(base, { ...valid, WORKERS_CI_BRANCH: 'feature/test' }), /main/);
   assert.throws(() => createDeployConfig(base, { ...valid, CLOUDFLARE_ACCOUNT_ID: 'wrong' }), /CLOUDFLARE_ACCOUNT_ID/);
-  assert.throws(() => createDeployConfig(base, { ...valid, R2_BUCKET_NAME: '../private' }), /R2_BUCKET_NAME/);
+  assert.equal(createDeployConfig(base, { ...valid, R2_BUCKET_NAME: '../private' }).r2_buckets, undefined);
 });

@@ -1,57 +1,36 @@
-# Cloudflare + local inference
+# Cloudflare results-only migration — accepted 2026-10-28
 
-GOAL: preserve NeuroStability features and real records while hosting the website on Cloudflare; run inference on the existing computer and automatically synchronize artifacts and results.
-CONTEXT: React/Vite UI uses same-origin /api; existing FastAPI/SQLAlchemy/local worker remains a supported offline installation.
-CONSTRAINTS: no deletion or mutation of the live local database; no real data, video, passwords or model weights in Git; no paid cloud resources created without an account; target Workers Free + D1 + private R2. Free quotas are not unlimited. Keep source provenance, score/review/assessment history and experimental measurement labels. Never infer identity from gender or fabricate results.
-DONE WHEN: all existing browser API operations are supported, migration verifies record and artifact checksums, authenticated local-worker lease/download/progress/upload/complete works through real local Cloudflare emulation, interrupted/stale workers cannot publish, existing Python/frontend tests and new integration tests pass. Production deploy remains dependent on Cloudflare credentials/resources/payment eligibility and network testing.
+GOAL: local AI analysis automatically synchronizes exact records and JSON results to a Cloudflare Workers/D1 website without R2.
+CONTEXT: preserve the existing SQLite archive and frontend; GitHub remains code-only. User accepted this design and requested implementation, testing and push in the current session.
+CONSTRAINTS: videos/models/rendered media stay on the computer. No browser operations, payment registration or live cloud mutation. No fabricated results. Minimal dependencies; existing inference code remains. Local original archive is retained on cloud deletion; concurrent divergent edits require explicit conflict resolution.
+DONE WHEN: D1-only Git deployment validates, exact original records/artifacts reconcile in local cloud emulation, cloud-created jobs compute against verified local media, JSON results and dashboard survive computer shutdown, tests pass and code is pushed.
 
-## Architecture and decisions
+## Plan and interfaces
 
-The user chose Cloudflare with computer inference over ECS. Static UI is served by Workers Assets; a small TypeScript API uses D1 (same SQLite schema) and private R2. The Python inference code remains local and is reused, not ported or replaced. Do not expose local ports or the database to the Internet. A dedicated revocable worker bearer secret authorizes task operations only, separate from browser cookies/CSRF. A migration command creates an SQLite backup, schema/export and R2 object manifest and imports only into an empty cloud database. Preserve original IDs, hashes, timestamps and raw stored JSON. Exclude temporary browser sessions and login attempts.
+- [x] D1 JSON storage: bounded rows, exact bytes, SHA256, atomic publish, 16MiB/file; reject raw video uploads. Existing R2 adapter remains optional compatibility only, with no production binding.
+- [x] Record synchronization: original 15 tables, raw JSON/password hashes preserved, CAS revisions and tombstones. Private checkpoints and no destructive automatic deletes. Cloud active jobs are not pulled into the local execution database.
+- [x] Local bridge: seed original records, synchronize existing JSON artifacts, run local inference and regularly reconcile updates. Local-owned queued/running jobs are excluded from cloud claims to prevent duplicate analysis. Durable private per-site checkpoints; no management API token needed.
+- [x] Frontend: cloud upload directs users to local workspace; 2D/tracks/masks play from saved data without a video; original media is explicitly local-only. Local website flow remains.
+- [x] Integration: real-data read-only backup and hashes; real Miniflare D1 with no R2; generated test video for local inference; complete regression suites, dry-run build, source/secret audit and Git push.
 
-Alternative: Cloudflare Containers could reuse FastAPI directly but requires a paid plan and persistent database arrangement. Retaining ECS would simplify backend deployment but adds permanent compute rent. Workers/D1 requires API adaptation; this is the chosen implementation tradeoff, not an assertion that the old Docker image runs on Free.
+## Architecture decisions
 
-## Components
+Workers Assets serves the same React UI; D1 contains relational records and chunked JSON files. Raw video never enters D1. Two threads in the local bridge independently synchronize records and claim cloud jobs. Browser authentication retains existing password hashes and the existing one-use proof protocol. Worker bearer is private and scoped to this application, stored outside Git. Original cloud APIs and analytical limitations remain; no missing model is marked ready.
 
-- `cloudflare/`: Worker API, D1 migration, Wrangler config and local integration tests. API response shapes must match `arena/api.py`, including reports, analytics, plans, profiles, review and score history, media Range support and private artifacts.
-- `arena/remote_worker.py`: outgoing HTTPS-only task client (loopback HTTP allowed for tests), local isolated SQLite task context and existing `run_once`; uploads immutable artifacts then commits result; persistent outbox resumes transient sync failures; heartbeat prevents premature expiry.
-- `scripts/cloudflare_migrate.py`: read-only SQLite snapshot/export, checksums/count reconciliation, resumable R2 transfer. Never silently replace cloud data.
-- Upload: browser multipart chunks below request limits, maximum 512MiB source, finalize after exact R2 size check. Cloudflare worker must not buffer or hash the full video. Computer verifies existing source hash before processing; for a new upload without a hash, it computes one while downloading and records it atomically on fenced completion. Existing imported hashes are never overwritten. Existing local 100MiB route remains compatible.
-- LLM draft requests are queued to the local worker too; no model/API secret in the browser. Cloud UI polls until draft exists.
+Full video playback is available on the original local workspace. Cloud 2D/tracks/masks use saved image-plane coordinates, and 3D retains model-relative units. The website does not imply uploaded raw media exists in the cloud. Online limits still apply; emulator tests cannot certify production CPU quota.
 
-## Task protocol (v1)
+## Validation record
 
-`Authorization: Bearer ARENA_WORKER_TOKEN`; all routes under `/api/worker`.
+Real-data verification uses a temporary SQLite backup plus read-only local objects, never production cloud resources. Every original row and every JSON artifact must match on a second pass; all source records remain unchanged. Raw video upload endpoints reject requests before parsing bytes.
 
-- `POST /heartbeat`: `{worker_id, models}` stores capabilities + last_seen.
-- `POST /claim`: `{worker_id, backends:[...]}` -> `{job,video,source_job,review?}` or 204. Leases last 180 seconds, renew every 30 seconds. `job.worker_token` is a fresh fencing token; only one active job per video. Expired jobs can be reclaimed with a new token; old tokens cannot upload/commit.
-- `POST /jobs/:id/heartbeat`: `{worker_token,stage?,progress?}` renews lease.
-- `GET /jobs/:id/source?artifact=source|normalized.mp4|pose.json`: `X-Worker-Lease` token, validated ownership; source artifacts only from that video's validated source job.
-- `PUT /jobs/:id/artifacts/:name`: `X-Worker-Lease`; allowed names normalized.mp4,pose.json,pose3d.json,segmentation.json; chunk uploads (<=8MiB) use `?upload_id=&part=` and multipart init/finalize actions if needed. API may return presigned upload instructions as protocol refinement documented alongside client/tests.
-- `POST /jobs/:id/complete`: `{worker_token,status,stage,metadata,result,error,draft?}` idempotent with same lease+payload; disallow arbitrary keys/paths, require result artifacts for completed real analyses; atomically fences publication and stores optional language draft. Rejected stale results stay private and cannot overwrite live state.
+Review fixes: immutable artifact pointers publish using atomic INSERT; reads resolve worker lease keys; missing local JSON is restored with SHA256; interrupted multipart finalization uses expiring fencing tokens. Per-site checkpoints reject endpoint reuse, and local active jobs never enter the cloud execution queue.
 
-## Implementation plan
+Verified commands on 2026-10-28:
 
-1. Add schema/config and real local D1/R2 integration harness; snapshot real local records before changes.
-2. Port API and statistics/export logic preserving response and validation behavior. Test auth, history, capabilities, duplicate jobs, leases, private media and ranges.
-3. Build outgoing local worker using existing inference, reconnect/outbox and source checksums. Test interruption, duplicate completion, stale token and real preprocessing.
-4. Add direct chunk upload and queued review handling to existing frontend; keep English/Chinese and existing UI.
-5. Verify migration by record counts/row hashes/object hashes; test complete flow with generated test video (not user records), run existing suites, document deploy/pair/start/recovery commands.
+- Python unittest discovery: 261 run, 11 explicit opt-in/dependency skips, no failures.
+- Frontend: 93 tests passed; TypeScript/Vite production build passed.
+- Cloudflare: 38 tests passed, including no-R2 HTTP/local-video processing, D1 multipart fencing and artifact conflict tests.
+- Temporary real-data clone: all 15 original table row fingerprints matched; every available original JSON artifact matched full remote bytes; second cycle had no writes/conflicts. Original records remained unchanged. This verification used only a loopback emulator, not a cloud account.
+- Git deployment configuration contains only D1 + Assets and results-only variables; no R2 binding or credentials. Wrangler dry-run checked separately before commit.
 
-## Review focus
-
-Deleted video/stale lease cannot republish; retries must not duplicate scores/drafts; old credentials and histories must survive migration; large video/artifact upload must never hit 100MB request limit; computer offline must not make stored results unavailable; all migrated data and artifacts remain private.
-
-## Progress
-
-Design follows the already authorized architecture; no additional approval checkpoint introduced. Cloud resource creation and production data upload await actual Cloudflare account configuration, not completion claims from local tests.
-
-- Implemented Worker/D1/R2 API, existing React client adaptation, outgoing Python inference, private resumable migration, isolated Cloudflare account launcher and computer pairing launcher.
-- Tested with official local D1/R2 runtime and real HTTP Python/FFmpeg processing; dense three-person results over 1MiB are preserved in R2 and restored exactly. Collection pages use compact summaries to avoid 70 R2 reads per listing.
-- Added cancellation fencing, idempotent browser upload finalization, source SHA establishment, immutable score/review/assessment history, CSV/ZIP parity tests against Python, and full remote-byte verification before migration completion markers.
-- Real-data export: all original tables were imported into local D1 emulation and row-hash verified. Source tables remain unchanged. Counts, hashes, file sizes and private paths live only in ignored `data/cloudflare-migration/`; no real data uploaded.
-- Production is pending the user's new Cloudflare account login and R2 activation. Existing global account was inspected read-only and is explicitly not the deployment target. The project now uses an isolated login directory.
-- User clarified deployment must be via GitHub and requested no further browser operation. Primary release path is now Workers Builds connected to `main`, root `cloudflare`, `build:site` + `deploy:ci`. Cloudflare build variables supply account/D1 IDs, CI uses Cloudflare's own build credentials; runtime worker secret stays outside Git. No further browser actions or OAuth login attempts are authorized or needed. Prior temporary login link expired without authorization.
-- Local emulation does not enforce production Free CPU billing; a target-account smoke test and quota monitoring remain required. Existing oversized legacy rows are rejected before cloud mutation (1.9MB safety threshold); the existing dataset passes this check. New dense outputs spill to R2.
-
-Final protocol refinements: browser uploads use POST `/api/uploads`, PUT `/:id/parts/:n`, POST `/:id/complete`, DELETE `/:id`. Artifact uploads use POST `/api/worker/jobs/:id/artifacts/:name/init`, PUT `?upload_id=&part=`, POST `/finalize`. `result.json` is an additional fenced private artifact for large results; completion sends `result_artifact:true` and only removes kinematics `series` from the D1 summary. Original JSON is restored for individual result/report requests. Cancellation is authenticated POST `/api/jobs/:id/cancel` and revokes the old worker token.
+The complete raw-media archive remains local. Production deployment and CPU/quota/network verification require the user's Cloudflare account and actual site URL. No paid resources or production data were created by these checks.

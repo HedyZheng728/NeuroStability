@@ -26,10 +26,11 @@ export function nearestPose3DFrame(frames: Pose3D['frames'], time: number, toler
   if (low > 0 && Math.abs(frames[low - 1].t - time) < Math.abs(frames[low]?.t - time)) low--;
   return frames[low] && Math.abs(frames[low].t - time) <= tolerance ? frames[low] : null;
 }
-export default function Pose3DPlayer({ job, seekTime, onTime }: { job: Job; seekTime: number | null; onTime: (time: number) => void }) {
+export default function Pose3DPlayer({ job, seekTime, onTime, resultsOnly = false }: { job: Job; seekTime: number | null; onTime: (time: number) => void; resultsOnly?: boolean }) {
   const state = useData(() => api<Pose3D>(`/jobs/${job.id}/pose3d`).then(value => ({ jobId: job.id, value })), [job.id]);
   const pose = pose3DForJob(state.data, job.id);
   const [time, setTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [track, setTrack] = useState<number | null>(null);
   const [azimuth, setAzimuth] = useState(25);
   const [elevation, setElevation] = useState(-10);
@@ -37,6 +38,8 @@ export default function Pose3DPlayer({ job, seekTime, onTime }: { job: Job; seek
   const video = useRef<HTMLVideoElement>(null);
   const pendingTime = useRef<number | null>(null);
   const offset = typeof job.metadata?.time_offset === 'number' ? job.metadata.time_offset : 0;
+  const firstTime = pose?.frames[0]?.t || 0;
+  const lastTime = pose?.frames.at(-1)?.t || 0;
   const geometry = useMemo(() => {
     const tracks = new Set<number>(); let scale = 0;
     for (const frame of pose?.frames || []) for (const person of frame.people) {
@@ -53,7 +56,9 @@ export default function Pose3DPlayer({ job, seekTime, onTime }: { job: Job; seek
   const points = person?.joints.length === 17 ? person.joints.map(joint => projectJoint(joint, azimuth, elevation, geometry.scale)) : [];
   const frameIndex = pose && frame ? pose.frames.indexOf(frame) : 0;
   function seekLocal(value: number) {
+    if (resultsOnly) { value = Number.isFinite(value) ? Math.max(firstTime, Math.min(lastTime, value)) : firstTime; setPlaying(false); }
     setTime(value); onTime(value + offset);
+    if (resultsOnly) return;
     if (video.current && video.current.readyState >= 1) { video.current.currentTime = value; video.current.pause(); }
     else pendingTime.current = value;
   }
@@ -63,14 +68,26 @@ export default function Pose3DPlayer({ job, seekTime, onTime }: { job: Job; seek
     const first = pose?.frames.find(observation => observation.people.some(person => person.track_id === value));
     if (first) seekLocal(first.t);
   }
-  useEffect(() => { setTime(0); setTrack(null); setMediaError(false); }, [job.id]);
+  useEffect(() => { setTime(0); setTrack(null); setMediaError(false); setPlaying(false); }, [job.id]);
   useEffect(() => { if (pose?.frames.length && time === 0) seekLocal(pose.frames[0].t); }, [pose]);
   useEffect(() => { if (seekTime !== null) seekLocal(Math.max(0, seekTime - offset)); }, [seekTime, offset]);
+  useEffect(() => {
+    if (!resultsOnly || !playing || !pose?.frames.length || lastTime <= firstTime) return;
+    const start = performance.now(); const startTime = time;
+    const timer = window.setInterval(() => {
+      const next = Math.min(lastTime, startTime + (performance.now() - start) / 1000);
+      setTime(next); onTime(next + offset);
+      if (next >= lastTime) setPlaying(false);
+    }, 50);
+    return () => window.clearInterval(timer);
+    // Manual frame seeking pauses the standalone timeline.
+  }, [resultsOnly, playing, job.id, firstTime, lastTime, offset, onTime]);
   return <div className="pose3d-player">
     <div className="pose3d-toolbar"><span>MotionBERT · {tx('Experimental', '实验性')}</span><label>{tx('Track', '轨迹')} <select aria-label={tx('3D track', '三维轨迹')} value={selectedTrack ?? ''} onChange={event => selectTrack(Number(event.target.value))}>{geometry.tracks.map(id => <option key={id} value={id}>T{id}</option>)}</select></label></div>
-    <div className="pose3d-stage"><video ref={video} src={`/api/jobs/${job.id}/media`} controls preload="metadata" playsInline onLoadedMetadata={event => { if (pendingTime.current !== null) { event.currentTarget.currentTime = pendingTime.current; pendingTime.current = null; } }} onTimeUpdate={event => { setTime(event.currentTarget.currentTime); onTime(event.currentTarget.currentTime + offset); }} onError={() => setMediaError(true)} />
+    <div className="pose3d-stage" style={resultsOnly ? { gridTemplateColumns: '1fr' } : undefined}>{!resultsOnly ? <video ref={video} src={`/api/jobs/${job.id}/media`} controls preload="metadata" playsInline onLoadedMetadata={event => { if (pendingTime.current !== null) { event.currentTarget.currentTime = pendingTime.current; pendingTime.current = null; } }} onTimeUpdate={event => { setTime(event.currentTarget.currentTime); onTime(event.currentTarget.currentTime + offset); }} onError={() => setMediaError(true)} /> : null}
       <svg className="pose3d-skeleton" viewBox="0 0 640 440" role="img" aria-label={tx('Predicted 3D skeleton', '预测三维骨架')}><path d="M110 385 H530 M320 360 V410" stroke="#d4d9df" fill="none" />{points.length ? <g stroke={selectedTrack % 2 ? '#27efbd' : '#ffb94f'} fill={selectedTrack % 2 ? '#27efbd' : '#ffb94f'} strokeWidth="4" strokeLinecap="round">{bones.map(([from, to]) => { const a = points[from]; const b = points[to]; return a && b ? <line key={`${from}-${to}`} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /> : null; })}{points.map((point, index) => point ? <circle key={index} cx={point[0]} cy={point[1]} r="5" stroke="#233449" strokeWidth="1" /> : null)}</g> : <text x="320" y="220" textAnchor="middle" fill="#8793a4" fontSize="16">{state.loading ? tx('Loading…', '加载中…') : tx('No 3D observation at this time', '当前时间无三维观测')}</text>}</svg>
     </div>
+    {resultsOnly && pose?.frames.length ? <div className="media-toolbar"><button type="button" className="button secondary small" disabled={lastTime <= firstTime} onClick={() => { if (time >= lastTime) setTime(firstTime); setPlaying(value => !value); }}>{playing ? tx('Pause', '暂停') : tx('Play', '播放')}</button></div> : null}
     {pose?.frames.length ? <label className="pose3d-time">{tx('Source', '原片')} {(frame ? frame.t + offset : time + offset).toFixed(3)} {tx('s', '秒')}<input aria-label={tx('3D frame', '三维帧')} type="range" min="0" max={pose.frames.length - 1} step="1" value={frameIndex} onChange={event => seekLocal(pose.frames[Number(event.target.value)].t)} /></label> : null}
     <div className="pose3d-orbit"><label>{tx('Rotate', '旋转')} {azimuth}°<input aria-label={tx('Azimuth', '方位角')} type="range" min="-180" max="180" value={azimuth} onChange={event => setAzimuth(Number(event.target.value))} /></label><label>{tx('Elevation', '仰角')} {elevation}°<input aria-label={tx('Elevation', '仰角')} type="range" min="-75" max="75" value={elevation} onChange={event => setElevation(Number(event.target.value))} /></label></div>
     {state.error ? <p className="notice error" role="alert">{state.error}</p> : null}{mediaError ? <p className="notice error">{tx('Processed video unavailable.', '分析视频暂不可用。')}</p> : null}

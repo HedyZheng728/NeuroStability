@@ -52,6 +52,7 @@ export type Video = {
   id: Id; session_id: Id; category: Category; filename: string; status: string; size_bytes: number;
   created_at: string; athlete_name?: string; session_date?: string; latest_job: Job | null; review: Review | null;
   duration_sec?: number;
+  media_location?: 'local';
   score?: { score: number; confirmed: boolean } | null;
 };
 export type CoachScore = { id: Id; video_id: Id; score: number; comment: string; confirmed: boolean; assessor: string; rubric_version: string; updated_at: string };

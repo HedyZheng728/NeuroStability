@@ -6,13 +6,12 @@ export function createDeployConfig(base, env) {
   if (!/^[a-f\d]{8}(-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(env.CLOUDFLARE_DATABASE_ID || '')) throw new Error('Set CLOUDFLARE_DATABASE_ID in Cloudflare Build variables.');
   if (env.WORKERS_CI_BRANCH && env.WORKERS_CI_BRANCH !== 'main') throw new Error('Production deploy accepts main only; use isolated resources for previews.');
   if (!/^[a-f\d]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID || '')) throw new Error('Set CLOUDFLARE_ACCOUNT_ID to the target account in Cloudflare Build variables.');
-  const bucket = env.R2_BUCKET_NAME || 'neurostability-private';
-  if (!/^[a-z\d][a-z\d-]{1,61}[a-z\d]$/.test(bucket)) throw new Error('R2_BUCKET_NAME is invalid.');
   const config = structuredClone(base);
   config.account_id = env.CLOUDFLARE_ACCOUNT_ID;
   config.keep_vars = true;
   config.d1_databases[0].database_id = env.CLOUDFLARE_DATABASE_ID;
-  config.r2_buckets[0].bucket_name = bucket;
+  delete config.r2_buckets;
+  config.vars = { ...config.vars, ARENA_RESULTS_ONLY: 'true' };
   return config;
 }
 

@@ -8,8 +8,8 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 if [[ ! -f data/cloudflare-worker.json && ( -z "${ARENA_CLOUD_URL:-}" || -z "${ARENA_WORKER_TOKEN:-}" ) ]]; then
   print -u2 "尚未配置云端分析。请先按照 README 完成一次性配对："
-  print -u2 ".venv/bin/python -m arena.remote_worker --configure https://你的域名"
+  print -u2 ".venv/bin/python -m arena.cloud_bridge --configure https://你的域名"
   read -r "?按回车键关闭窗口。"
   exit 1
 fi
-exec .venv/bin/python -m arena.remote_worker --config data/cloudflare-worker.json
+exec .venv/bin/python -m arena.cloud_bridge --config data/cloudflare-worker.json

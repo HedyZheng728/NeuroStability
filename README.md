@@ -24,96 +24,83 @@
 | WHAM | 尚未接入，仍需独立环境、权重与已授权SMPL模型 |
 | 人工事件、可修改复盘、历史版本、JSON报告 | 已实现；AI/规则草稿与人工确认分开保存 |
 | 合成样例 | 服务器允许且用户显式勾选才运行；关键点与视频动作无关，永久排除真实趋势 |
-| Cloudflare + 电脑分析 | Workers 静态界面/API、D1、私有 R2；电脑主动领取任务、自动回传，支持断线重试、取消和大结果分离存储；本地模拟器已验证，尚未在目标账号上线 |
+| Cloudflare + 电脑分析 | Workers 静态界面/API、D1；视频与模型留在电脑，训练记录和 JSON 结果自动同步；无需 R2，目标账号尚未上线 |
 | 其他部署 | 原有 Docker Compose + PostgreSQL + 私有 S3/COS + Caddy 配置保留 |
 
 FSW 权重核查证据与范围见 [docs/fsw-audit.md](docs/fsw-audit.md)。没有将 ImageNet 权重、随机分类头、论文准确率或规则输出包装为实际摔跤识别结果。
 
-## Cloudflare 部署与电脑自动分析
+## Cloudflare 部署与电脑自动分析（无需 R2）
 
-网站全天读取云端已保存数据；电脑开机且分析进程运行时领取新任务。电脑关闭后新任务排队，已完成的报告、评分和视频仍可查看。登录和数据 API 运行在 Workers，关系记录存入 D1，原视频及所有分析文件放私有 R2，模型仅保存在电脑上。不会开放电脑端口，也不会把数据库直接暴露到公网。
+AI 在本机运行；Cloudflare Workers 提供网站/API，D1 保存训练记录及分块 JSON 分析结果。**不需要开通 R2、绑定 R2 付款方式或购买 ECS。** 原视频、预处理视频及模型留在分析电脑，GitHub 只存代码。电脑关机后云端评分、审核、统计、复盘、二维/轨迹/分割数据和三维骨架仍可查看；云端没有原片播放器。完整视频在本地工作台查看。现有本地运行方式继续保留。
 
-现有本地运行方式仍保留。Cloudflare 部署使用同一套前端和兼容 API，并非将 Docker 直接放入 Workers。当前单团队管理员权限边界不变。默认以 Workers Free 为目标，无需购买 ECS；免费额度不是不限量，尚需在目标账号、实际网络和真实访问量下核查 CPU 时间及请求配额。R2 即使使用免费额度也需启用订阅，可能要求绑定付款方式；不需要为此升级 Workers Paid 或购买 Pro 网站套餐。官方价格见 [Workers](https://developers.cloudflare.com/workers/platform/pricing/)、[D1](https://developers.cloudflare.com/d1/platform/pricing/)、[R2](https://developers.cloudflare.com/r2/pricing/)。
+### 1. 通过 GitHub 部署
 
-### 1. 从 GitHub 自动部署（推荐）
-
-由用户自行登录目标 Cloudflare 账号，在 **Workers & Pages → 创建 Worker → 连接 GitHub** 中授权学生仓库 `HedyZheng728/NeuroStability`，应用名称填 `neurostability`。不需要让代理操作浏览器，也不需要在电脑登录 Cloudflare 才能发布代码。[官方 Git 集成说明](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
-
-在同一账号创建 D1 数据库 `neurostability`，启用 R2 并创建私有桶 `neurostability-private`；不启用 public access。配置构建：
+用户自行登录目标 Cloudflare 账号，在 Workers & Pages 创建应用并连接 `HedyZheng728/NeuroStability`。保留已经创建的 `neurostability` D1 数据库，不必新建，也不要开通 R2。
 
 | 设置 | 填写 |
 | --- | --- |
-| 生产分支 | `main` |
-| 根目录 | `cloudflare` |
-| 构建命令 | `npm run build:site` |
-| 部署命令 | `npm run deploy:ci` |
-| 非生产分支预览 | 首次关闭；预览须使用独立数据资源 |
+| 应用名称 / 分支 | `neurostability` / `main` |
+| 根目录 Path | `cloudflare` |
+| Build command | `npm run build:site` |
+| Deploy command | `npm run deploy:ci` |
+| Preview builds | 关闭；预览不能复用生产数据库 |
 | 构建变量 `NODE_VERSION` | `22` |
-| 构建变量 `CLOUDFLARE_ACCOUNT_ID` | 本项目目标账号 ID |
-| 构建变量 `CLOUDFLARE_DATABASE_ID` | 刚创建的 D1 数据库 ID |
-| 构建变量 `R2_BUCKET_NAME` | `neurostability-private`（可省略，默认同名） |
+| 构建变量 `CLOUDFLARE_ACCOUNT_ID` | 目标账号的完整 Account ID |
+| 构建变量 `CLOUDFLARE_DATABASE_ID` | 已创建数据库的完整 Database ID |
 
-Cloudflare 构建令牌必须能编辑 Worker、应用 D1 迁移并绑定 R2。平台默认生成的构建令牌如不含 D1 编辑权限，需要用户在令牌权限中补充 **Account → D1 → Edit**。令牌留在 Cloudflare，不放 GitHub 或聊天。
+构建令牌需 Workers Scripts Edit、D1 Edit 等构建所需权限；令牌留在 Cloudflare。构建会自动执行尚未应用的 D1 schema 迁移并部署静态页面和 API。已有运行时机密保留；配置不含个人 ID 或密码。无需 `R2_BUCKET_NAME`、S3 key、Cloudflare 管理 API Token 或电脑端 Wrangler 登录。
 
-部署会生成 Git 忽略的 `wrangler.deploy.json`，应用尚未执行的数据库 schema 迁移，再发布网站和 API。账号 ID/数据库 ID由构建变量提供，密钥不写入配置。运行时已有 Secret 会保留；电脑任务密钥在 Worker 的 **设置 → 变量和机密** 中配置。生成数据库结构不生成假运动员、假分析或默认密码。发布后先导入下面的真实数据，再交付使用。
+首次部署只有数据库结构，**不会生成假数据或默认账号**。完成下述配对和首次同步后，原账号密码及真实数据才会出现。后续代码推送 `main`，由 GitHub 集成自动发布；数据不跟 Git 部署覆盖。
 
-以后向 `main` 推送代码，Cloudflare 自动构建发布；视频、训练记录和模型不随 Git 部署。Workers 免费的 `workers.dev` 域名可用于首版。个人训练视频的授权与跨境存储要求仍需落实。
+### 2. 一次配对
 
-### 2. 迁移原有记录和文件
-
-先停止本机写入并完成或取消活动任务；退出网页不等于停止服务。迁移命令会只读备份原数据库，并在独立副本中排除临时登录会话与登录限流记录；原账号密码哈希、ID、评分、审核、草稿、事件、历史和源 JSON 原文全部保留。视频不重复复制到本地，而是生成文件大小、SHA256 和位置清单。
+取得部署后的实际 HTTPS 网址，在项目根目录执行：
 
 ```sh
-# 项目根目录；只在本地生成私有迁移包，不访问云端。
-.venv/bin/python scripts/cloudflare_migrate.py export
+.venv/bin/python -m arena.cloud_bridge --configure https://实际网站地址
 ```
 
-首次 Git 部署会在目标 D1 创建空 schema。历史数据在本机通过下面的迁移命令单独进入 D1/R2；不上传到 GitHub。
+命令仅在本机生成权限600的 `data/cloudflare-worker.json` 和 `data/cloudflare-worker-token.txt`，不会操作浏览器或访问云平台。用户把 token 文件内容填入该 Worker 的 **Settings → Variables and Secrets → Secret `ARENA_WORKER_TOKEN`**，保存并部署。不要发到聊天、GitHub 或构建日志。这是本应用的专用同步密钥，不是 Cloudflare 管理令牌。
 
-线上迁移使用环境变量 `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_DATABASE_ID`、`CLOUDFLARE_API_TOKEN`（目标账号 D1 编辑权限），及 R2 S3 凭据 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`S3_BUCKET`。R2 token 只授权该私有桶，`S3_ENDPOINT_URL` 默认由账号 ID 构造。凭据通过当前终端或 Git 忽略的私有环境文件加载，不粘贴到聊天、不提交 Git。
+### 3. 首次同步及验证
+
+保持本地程序版本与仓库一致；首次同步会在 `data/result-sync/<网站标识>/before-sync.db` 创建原库一致备份，不删除原数据库或媒体。
 
 ```sh
-.venv/bin/python scripts/cloudflare_migrate.py import /实际迁移包目录
-.venv/bin/python scripts/cloudflare_migrate.py verify /实际迁移包目录 --full
+# 自动迁移历史记录和 JSON；复查远端 JSON 实际字节；不上传原视频。
+.venv/bin/python -m arena.cloud_bridge --once --verify
+# 持续同步，并领取网站的新分析请求。
+.venv/bin/python -m arena.cloud_bridge
 ```
 
-导入仅支持空库，断点续传仅接受相同迁移清单；已有不同记录会拒绝覆盖。完成标记需通过全表原文/哈希和远端文件实际字节校验后才写入。原 SQLite 不会被修改或删除。D1 单行硬限制为 2MB，迁移会预检并拒绝过大的旧记录，而不截断；现有数据已通过预检。新产生的大逐帧结果自动存入私有 `result.json`，网页恢复完整内容。批量迁移遇到 D1 接口限流会按响应指示等待重试；中断后可使用同一迁移包继续。
+也可双击 `scripts/启动云端分析.command`，保持终端运行；Ctrl+C 停止。默认每60秒核对记录，新任务由本机领取；分析期间后台同步仍运行。短时网络故障自动重试，重启继续读取私有检查点。首次联网同步失败时可重新运行同一命令；检查点保留已完成进度。
 
-### 3. 配对电脑
+网站登录沿用原账号密码。原账号哈希、15类原始关系记录、原 JSON 字符串、评分、改分历史、审核及审核历史均保留；临时浏览器登录会话不迁移。JSON 文件校验 SHA256，分块避免 D1 单行大小限制。每个 JSON 文件上限16MiB，大的逐帧结果单独保存并完整恢复，不截断。原片与模型始终保存在电脑。
 
-从 Cloudflare Git 部署记录取得实际 HTTPS 网站地址。后续更新继续走 Git 自动部署，无需命令行发布。
+网站和本机的单方修改会同步；同一条记录两边都修改时保留两份并在私有 `records.json` 的 `conflicts` 中记录，需明确解决后继续，不按时间强行覆盖。云端删除不会自动删本机视频，也不会把本机存档重新创建到云端；本机删除不自动删除云端。请勿直接清空同步检查点解决冲突。不同网站使用独立检查点和 outbox。电脑的新本地任务完成后同步；云端的新任务在隔离任务数据库运行，避免被两个 Worker 重复领取。
 
-登录沿用迁移前的账号和密码；无需也没有新增默认线上密码。云端使用一次性登录证明，电脑浏览器计算原有 PBKDF2，避免在 Free Worker 内执行昂贵密码派生。网站仍使用 HttpOnly cookie 和 CSRF 校验。
+### 4. 训练与查看
 
-得到实际网址后，在项目根目录执行一次：
+- 在分析电脑的本地工作台上传视频、运行现有分析，完成后自动同步；仍可使用已有视频投放流程。
+- 网站查看运动员、场次、视频目录、评分、分类、审核、计划、趋势、CSV/ZIP/JSON 报告。
+- 二维骨架、轨迹、人物遮罩和三维骨架从实际保存的 JSON 播放，不请求云端视频；分割显示保存的遮罩轮廓。
+- 网站可提交重新分析、复盘草稿或取消任务；电脑在线且具备相应模型时执行。缺少匹配本地视频时会明确阻塞，不虚构结果。
+- 从云端拉回已完成任务时，同时恢复相应 JSON 文件；原片必须在当前分析电脑上有匹配的 ID、大小及 SHA256。
 
-```sh
-.venv/bin/python -m arena.remote_worker --configure https://实际网站地址
-.venv/bin/python -m arena.remote_worker
-```
+无需公网开放本机端口。Worker bearer 具有本应用同步权限，只放可信分析电脑；浏览器使用原有 HttpOnly Cookie、CSRF 和一次性登录证明。模型状态来自本机实际能力，不把未安装模型标为可用。已有科学边界、实验性标记及人工评分来源保持不变。
 
-启动前，由用户把生成的 `data/cloudflare-worker-token.txt` 内容放入该 Worker 的 **设置 → 变量和机密 → Secret `ARENA_WORKER_TOKEN`**。这是电脑与网站之间的专用任务密钥，不是 Cloudflare 管理 API Token，也不需要提交 GitHub。
-
-配对文件 `data/cloudflare-worker.json` 和密钥文件仅本机可读。之后可双击 `scripts/启动云端分析.command`。保持终端运行；停止用 Ctrl+C。不要向电脑提供 Cloudflare 管理 API Token，分析进程只需要专用任务密钥。模型自动复用 `models/` 中已安装的 RTMPose、SAM2、MotionBERT、Qwen3-VL 和复盘语言模型，未安装的方法不会假装可用。
-
-原有事件标注、分类修改、评分/改分历史、审核、运动员档案、训练计划、统计、CSV、ZIP 和 JSON 报告继续可用。语言模型草稿现在排队到电脑生成；规则草稿仍可立即生成。云端上传支持512MiB、8MiB分片与失败重试，350MB片段不需要仅因上传限制被压缩；5分钟分析片段限制仍然适用。超长原片仍应通过本地整理工具分段。
-
-任务租约180秒，电脑定时续约；网络中断保留私有 outbox，短时恢复后继续同步。租约已被取消或重新领取时，旧结果不能发布。网页可取消排队/运行任务后重新选择方法。不要手动清空 `data/remote-outbox/` 来处理网络故障。
-
-### 验证
+### 验证及免费额度
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 npm --prefix frontend test
 npm --prefix frontend run build
-cd cloudflare
-npm ci
-npm test
+npm --prefix cloudflare test
 ```
 
-Cloudflare 测试使用官方 Miniflare 的真实 D1/R2，以及临时视频、FFmpeg、Python 电脑端的真实 HTTP 流程，不连接线上账号、不上传用户视频。大结果回传还覆盖3000帧、三人、超过1MiB的完整结果恢复。线上发布后仍需执行一次真实上传、分析、播放、取消及浏览器登录测试，并观察 Free CPU 与 D1/R2 用量。
+测试包含真实 Miniflare D1（不绑定 R2）、完整 JSON 字节往返、本地视频与现有 Python 分析流程、断线、租约、取消、版本冲突和媒体隔离；测试生成的临时素材不进入训练数据。旧 R2 协议测试仅保留兼容回归，不是当前部署依赖。原 `scripts/cloudflare_migrate.py` 保留作历史快照/可选旧部署维护，新方案不使用其 R2 导入命令。
 
-可选的本机 Wrangler 入口 `cloudflare/run` 使用 `data/cloudflare-auth/` 隔离账号，保留供开发和故障排查；GitHub 自动部署不经过这个入口，也不读取电脑的旧账号。
+Workers Free 与 D1 有配额，不能保证不限量或任意规模。D1 Free 单数据库500MB、单行2MB；JSON 编码会产生存储开销。当地模拟器不能证明生产 CPU/内存配额，首次上线后需观察真实调用指标和访问速度。[Workers 定价](https://developers.cloudflare.com/workers/platform/pricing/)、[D1 限制](https://developers.cloudflare.com/d1/platform/limits/)、[Git 构建说明](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)。
 
 ## 本机启动
 

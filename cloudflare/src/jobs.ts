@@ -1,12 +1,18 @@
 import { APIError, body, choice, epoch, json, now, number, sha256, text, workerAuth } from './auth';
-import { compactResult, decodeRow, encode, insert, jobArtifactKey, MAX_RESULT_BYTES, PART_SIZE, readPart, requireRow, rows, storedFile } from './media';
+import { compactResult, decodeRow, encode, insert, jobArtifactKey, MAX_RESULT_BYTES, PART_SIZE, localMediaOnly, resultsOnly, readPart, requireRow, rows, storedFile } from './media';
 const names = ['normalized.mp4', 'pose.json', 'pose3d.json', 'segmentation.json', 'result.json'];
+function validateJSON(data: ArrayBuffer) {
+    try {
+        const value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(data));
+        if (!value || typeof value !== 'object') throw new Error('object required');
+    } catch { throw new APIError(422, '结果 JSON 无效'); }
+}
 const terminal = ['completed', 'needs_review', 'failed', 'blocked'];
 export async function lease(env: any, id: string, token: string) { const j = await env.DB.prepare("SELECT j.* FROM jobs j JOIN videos v ON v.id=j.video_id WHERE j.id=? AND j.worker_token=? AND j.status='running' AND j.lease_until>? AND v.status!='deleting'").bind(id, token, epoch()).first(); if (!j)
     throw new APIError(409, '任务租约已失效'); return decodeRow(j); }
 function leaseToken(req: Request, p?: any) { return text(p?.worker_token || req.headers.get('x-worker-lease'), 80, 1); }
 async function describe(env: any, j: any) { if (!j)
-    return null; const artifacts: any = {}; for (const name of names) {
+    return null; const artifacts: any = {}; for (const name of names.filter(name => !resultsOnly(env) || name.endsWith('.json'))) {
     const stored = await env.DB.prepare('SELECT * FROM job_artifacts WHERE job_id=? AND name=? AND worker_token=?').bind(j.id, name, j.worker_token || '').first();
     const key = await jobArtifactKey(env, j, name), head = await env.MEDIA.head(key);
     if (head)
@@ -42,7 +48,7 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
         if (sourceJob && sourceJob.video_id !== video.id)
             throw new APIError(409, '来源不属于此视频');
         const review = (await rows(env, 'SELECT * FROM reviews WHERE video_id=?', [video.id]))[0] || null;
-        return json({ job, video, source_job: await describe(env, sourceJob), review });
+        return json({ storage_mode: (env.ARENA_RESULTS_ONLY === 'true' || env.MEDIA?.resultsOnly) ? 'results-only' : 'media', job, video, source_job: await describe(env, sourceJob), review });
     }
     if ((m = /^\/api\/worker\/jobs\/([^/]+)\/heartbeat$/.exec(path)) && req.method === 'POST') {
         const p = await body(req, ['worker_token', 'stage', 'progress']), token = leaseToken(req, p);
@@ -55,6 +61,7 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
     }
     if ((m = /^\/api\/worker\/jobs\/([^/]+)\/source$/.exec(path)) && ['GET', 'HEAD'].includes(req.method)) {
         const job = await lease(env, m[1], leaseToken(req)), video = await requireRow(env, 'videos', job.video_id), artifact = url.searchParams.get('artifact') || 'source';
+        if (resultsOnly(env) && !artifact.endsWith('.json')) localMediaOnly();
         let key = video.storage_key, type = 'application/octet-stream', digest = video.sha256;
         if (artifact !== 'source') {
             if (!['normalized.mp4', 'pose.json'].includes(artifact))
@@ -79,8 +86,9 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
         const id = m[1], name = m[2], action = m[3];
         if (!names.includes(name))
             throw new APIError(422, '文件名称无效');
+        if (resultsOnly(env) && !name.endsWith('.json')) localMediaOnly();
         if (action === 'init' && req.method === 'POST') {
-            const p = await body(req, ['worker_token', 'size_bytes', 'sha256', 'content_type']), token = leaseToken(req, p), job = await lease(env, id, token), size = number(p.size_bytes, 1, name === 'result.json' ? MAX_RESULT_BYTES : 512 * 1024 * 1024, true);
+            const p = await body(req, ['worker_token', 'size_bytes', 'sha256', 'content_type']), token = leaseToken(req, p), job = await lease(env, id, token), size = number(p.size_bytes, 1, name.endsWith('.json') ? MAX_RESULT_BYTES : 512 * 1024 * 1024, true);
             if (typeof p.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(p.sha256))
                 throw new APIError(422, '文件校验值无效');
             const uploadId = crypto.randomUUID(), key = `videos/${job.video_id}/jobs/${id}/leases/${token}/${uploadId}/${name}`, upload = await env.MEDIA.createMultipartUpload(key, { httpMetadata: { contentType: name.endsWith('.json') ? 'application/json' : 'video/mp4' }, customMetadata: { sha256: p.sha256 } });
@@ -91,6 +99,7 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
             const token = leaseToken(req), job = await lease(env, id, token), uploadId = url.searchParams.get('upload_id');
             if (!uploadId) {
                 const data = await readPart(req), digest = await sha256(data), key = `videos/${job.video_id}/jobs/${id}/leases/${token}/${crypto.randomUUID()}/${name}`;
+                if (name.endsWith('.json')) validateJSON(data);
                 await env.MEDIA.put(key, data, { customMetadata: { sha256: digest }, httpMetadata: { contentType: name.endsWith('.json') ? 'application/json' : 'video/mp4' } });
                 await lease(env, id, token);
                 const saved = await env.DB.prepare("INSERT INTO job_artifacts(job_id,name,worker_token,storage_key,size_bytes,sha256) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE id=? AND worker_token=? AND status='running' AND lease_until>?) ON CONFLICT(job_id,name,worker_token) DO UPDATE SET storage_key=excluded.storage_key,size_bytes=excluded.size_bytes,sha256=excluded.sha256").bind(id, name, token, key, data.byteLength, digest, id, token, epoch()).run();
@@ -125,6 +134,11 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
                 obj = await env.MEDIA.resumeMultipartUpload(u.storage_key, u.multipart_id).complete(parts);
             if (obj.size !== manifest.size_bytes)
                 throw new APIError(422, '文件大小校验失败');
+            if (name.endsWith('.json')) {
+                const artifact = await env.MEDIA.get(u.storage_key), data = await artifact.arrayBuffer();
+                if (await sha256(data) !== manifest.sha256) throw new APIError(422, 'JSON 结果 SHA256 校验失败');
+                validateJSON(data);
+            }
             await lease(env, id, token);
             const saved = await env.DB.prepare("INSERT INTO job_artifacts(job_id,name,worker_token,storage_key,size_bytes,sha256) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE id=? AND worker_token=? AND status='running' AND lease_until>?) ON CONFLICT(job_id,name,worker_token) DO UPDATE SET storage_key=excluded.storage_key,size_bytes=excluded.size_bytes,sha256=excluded.sha256").bind(id, name, token, u.storage_key, obj.size, manifest.sha256, id, token, epoch()).run();
             if (!saved.meta.changes)
@@ -160,7 +174,7 @@ export async function workerRoute(req: Request, env: any): Promise<Response | nu
                     throw new APIError(422, '视频预处理信息缺失');
                 if (job.backend !== 'preprocess' && (!p.result || typeof p.result !== 'object' || Array.isArray(p.result) || p.result.synthetic !== false))
                     throw new APIError(422, '真实分析结果缺失');
-                const required = ['normalized.mp4', ...(['rtmpose', 'rtmpose_tracking'].includes(job.backend) ? ['pose.json'] : job.backend === 'pose3d' ? ['pose3d.json'] : job.backend === 'sam2' ? ['segmentation.json'] : [])];
+                const required = [...(resultsOnly(env) ? [] : ['normalized.mp4']), ...(['rtmpose', 'rtmpose_tracking'].includes(job.backend) ? ['pose.json'] : job.backend === 'pose3d' ? ['pose3d.json'] : job.backend === 'sam2' ? ['segmentation.json'] : [])];
                 for (const name of required) {
                     const a = await env.DB.prepare('SELECT storage_key,size_bytes FROM job_artifacts WHERE job_id=? AND name=? AND worker_token=?').bind(id, name, token).first();
                     if (!a || !(await env.MEDIA.head(a.storage_key)))

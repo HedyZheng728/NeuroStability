@@ -27,7 +27,7 @@ export default function Upload({ notify, initialSession = '' }: { notify: Notify
   return <>
     <PageHeader title={t("上传训练视频")} />
     <LoadState loading={loading} error={error} retry={reload} />
-    {data ? data.sessions.length ? <div className="upload-layout"><Panel title={t("视频与训练信息")}>
+    {data?.config.mode === 'local' ? <Panel title={tx('Upload on the analysis computer', '请在分析电脑上上传')}><div className="empty"><h3>{tx('Open the local workspace on your analysis computer', '在分析电脑上打开本地工作区')}</h3><p>{tx('Upload and analyze videos there. Saved results will appear here.', '在那里上传并分析视频，保存的结果会显示在这里。')}</p><a className="button secondary" href="#videos">{t("返回视频库")}</a></div></Panel> : data ? data.sessions.length ? <div className="upload-layout"><Panel title={t("视频与训练信息")}>
       <form className="upload-form" onSubmit={submit}>
         <Field label={t("关联训练场次")}><select name="session_id" required defaultValue={initialSession}><option value="" disabled>{t("选择训练场次")}</option>{data.sessions.map(session => <option value={session.id} key={session.id}>{session.date} · {session.athlete_name || data.athletes.find(athlete => athlete.id === session.athlete_id)?.name || t("运动员")} · {session.objective}</option>)}</select></Field>
         <Field label={t("训练专项")}><select name="category" required defaultValue=""><option value="" disabled>{t("选择主要训练目的")}</option>{Object.entries(categories).map(([key, value]) => <option value={key} key={key}>{t(value.name)} · {t(value.description)}</option>)}</select></Field>

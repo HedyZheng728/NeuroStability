@@ -79,3 +79,11 @@ test('upload limits reject before network and aborted upload cleans up its priva
   await assert.rejects(() => client.uploadVideo(file, {}, { mode: 'multipart', max_size_bytes: 100, part_size: 8388608 }, undefined, controller.signal));
   assert.equal(calls, 3);
 });
+
+ test('results-only upload never transfers a raw video or opens cloud upload', async () => {
+  let requests = 0;
+  const client = load(async () => { requests++; return reply({}); });
+  const file = new Blob(['private source']);
+  await assert.rejects(() => client.uploadVideo(file, {}, { mode: 'local', max_size_bytes: 512 * 1024 * 1024, part_size: 0 }), error => error.status === 409);
+  assert.equal(requests, 0);
+});

@@ -56,7 +56,8 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
     : report?.jobs.find(job => job.result && !job.result.synthetic && !activeJob(job));
   const visibleDrafts = report?.drafts?.filter(reviewDraftVisible) || [];
   const latestDraft = generatedDraft?.videoId === id && reviewDraftVisible(generatedDraft.draft) ? generatedDraft.draft : visibleDrafts.find(draft => draft.provider === 'llm') || visibleDrafts[0];
-  const analysisMode = ['pose', 'tracking', 'masks'].includes(capability) && !!selected?.result && !!selected.metadata;
+  const resultsOnly = report?.video.media_location === 'local';
+  const analysisMode = ['pose', 'tracking', 'masks'].includes(capability) && !!selected?.result && (resultsOnly || !!selected.metadata);
   function chooseCapability(value: Capability) {
     setCapabilityChoice(value); setSeek(null); setPlaybackRequest(previous => previous + 1);
     const backend = capabilityBackends[value];
@@ -147,7 +148,7 @@ export default function VideoDetail({ id, initialJobId = '', notify }: { id: str
         {capabilities.map(value => <button key={value} type="button" role="tab" id={`capability-${value}`} aria-controls="capability-workspace" aria-selected={capability === value} className={capability === value ? 'active' : ''} onClick={() => chooseCapability(value)}>{capabilityLabel(value)}{capabilityBackends[value] ? <i className={latestCapabilityJob(report.jobs, capabilityBackends[value]!)?.result ? 'ready' : state.data?.models[capabilityBackends[value] as keyof Models]?.ready ? 'available' : 'unavailable'} /> : null}</button>)}
       </nav>
       <div className="coach-viewport" id="capability-workspace" role="tabpanel" aria-labelledby={`capability-${capability}`}>
-        <Panel className="video-panel">{capability === '3d' && selected?.backend === 'pose3d' && selected.result?.kind === 'pose3d' ? <Pose3DPlayer key={selected.id} job={selected} seekTime={seek} onTime={setCurrentTime} /> : <PosePlayer key={`${selected?.id || id}:${capability}:${playbackRequest}`} videoId={id} job={selected} preferredMode={analysisMode ? 'analysis' : 'original'} showModeControls={false} seekTime={seek} onTime={setCurrentTime} />}</Panel>
+        <Panel className="video-panel">{capability === '3d' && selected?.backend === 'pose3d' && selected.result?.kind === 'pose3d' ? <Pose3DPlayer key={selected.id} job={selected} resultsOnly={resultsOnly} seekTime={seek} onTime={setCurrentTime} /> : <PosePlayer key={`${selected?.id || id}:${capability}:${playbackRequest}`} videoId={id} job={selected} resultsOnly={resultsOnly} preferredMode={analysisMode ? 'analysis' : 'original'} showModeControls={false} seekTime={seek} onTime={setCurrentTime} />}</Panel>
         {capability === 'review' ? <Panel className="capability-context" title={tx('AI review', 'AI 复盘')} action={<span className={`status ${state.data.models.llm?.ready ? 'success' : 'neutral'}`}>{state.data.models.llm?.ready ? tx('Available', '可使用') : tx('Unavailable', '未就绪')}</span>}>
           <div className="capability-body"><button className="button" disabled={generating || !!running || !state.data.models.llm?.ready || !reviewJob} onClick={generateAI}>{runningJob?.backend === 'review_draft' ? tx('Waiting for computer', '等待电脑处理') : generating ? tx('Generating…', '生成中…') : tx('Generate AI review', '生成 AI 复盘')}</button>
           {!state.data.models.llm?.ready ? <p>{tx('Language model unavailable', '语言模型未就绪')} · <a className="text-link" href="#models">{tx('Model status', '模型状态')}</a></p> : !reviewJob ? <p>{tx('Analyze this video first.', '请先分析此视频。')}</p> : null}
