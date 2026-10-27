@@ -57,25 +57,21 @@ A session's recorded duration represents the training session. Archived clip dur
 | Minimum, median, and maximum | Per-track knee, elbow, and trunk observations | Summarize each measured sequence while preserving its sample count. |
 | Grouped summaries | Date, athlete, training category, and week | Support review of training organization and changes in recorded activity. |
 
-Quartiles use linear interpolation, commonly called **Type 7 quantiles**. For sorted observations indexed from zero, the position for probability $p$ is $h=(n-1)p$, interpolating between the adjacent observations. Empty groups remain missing; a single-observation group returns that observation.
+Quartiles use linear interpolation, commonly called **Type 7 quantiles**. For sorted observations indexed from zero, the position for probability `p` is `h = (n - 1) * p`, interpolating between the adjacent observations. Empty groups remain missing; a single-observation group returns that observation.
 
 Score summaries use each video's current confirmed review score once. Historical scores remain in the audit trail. Scores are subjective training-clip reviews, and their interpretation depends on the recorded rubric and training context.
 
 ### 3. Variability and body-scale normalization
 
-The **Wrestling Stability Engine** implements interpretable image-plane descriptors in [arena/engine.py](arena/engine.py). Let $m$ be the number of usable sampled frames, $x_t$ the horizontal hip-midpoint coordinate, $\ell_t$ the shoulder-midpoint-to-hip-midpoint distance, and $a_t$ the two-dimensional ankle distance.
+The **Wrestling Stability Engine** implements interpretable image-plane descriptors in [arena/engine.py](arena/engine.py). Let `m` be the number of usable sampled frames, `x_t` the horizontal hip-midpoint coordinate, `ell_t` the shoulder-midpoint-to-hip-midpoint distance, and `a_t` the two-dimensional ankle distance.
 
 The normalized hip-midpoint dispersion is:
 
-$$
-D_{hip}=\frac{\sqrt{\frac{1}{m}\sum_{t=1}^{m}(x_t-\bar{x})^2}}{\operatorname{median}(\ell_t)}
-$$
+![Normalized hip-midpoint dispersion: population standard deviation of horizontal hip midpoint divided by median torso length](docs/images/hip-dispersion-formula.png)
 
 The normalized mean ankle span is:
 
-$$
-S_{ankle}=\frac{\frac{1}{m}\sum_{t=1}^{m}a_t}{\operatorname{median}(\ell_t)}
-$$
+![Normalized mean ankle span: mean two-dimensional ankle distance divided by median torso length](docs/images/ankle-span-formula.png)
 
 Using an observed body scale reduces dependence on pixel size under uniform image scaling. It does not correct perspective, camera movement, or differences in technique. The hip midpoint is a geometric landmark, not a measured center of mass. No universal "better" direction is assigned to these descriptors.
 
@@ -100,7 +96,7 @@ The interface preserves time sequences and supports descriptive comparisons. It 
 Planning and training records support operational statistics in [arena/planning.py](arena/planning.py):
 
 - **Plan completion:** completed due plans divided by non-cancelled due plans, using the reporting cutoff and workspace timezone. A completed plan must link to an actual recorded session.
-- **Recorded workload proxy:** $\sum_s d_s r_s$ over sessions with a recorded RPE, where $d_s$ is duration in minutes and $r_s$ is perceived exertion. The system also reports RPE coverage; the result is an arbitrary-unit summary of recorded inputs.
+- **Recorded workload proxy:** `sum(duration_min * RPE)` over sessions with a recorded RPE, where `duration_min` is duration in minutes and `RPE` is perceived exertion. The system also reports RPE coverage; the result is an arbitrary-unit summary of recorded inputs.
 - **Weekly activity:** recorded session counts, minutes, and available workload summaries, grouped by Monday-starting week.
 - **Review coverage:** reviewed videos, confirmed scores, and annotation counts, with access to the supporting records.
 
