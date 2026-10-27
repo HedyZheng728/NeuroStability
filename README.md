@@ -1,6 +1,45 @@
 # NeuroStability Arena
 
-自由式摔跤科学训练、视频证据与人工复盘工作台。先记录训练问题和视频事件，再用经过检查的模型辅助测量。界面默认没有运动员、训练、视频或成绩。
+自由式摔跤科学训练与 AI 辅助复盘工作台。管理训练场次、保存视频证据、查看动作观测与趋势，并由教练修订复盘记录。
+
+**[Online workspace · 在线工作台](https://neurostability.hedyzheng20090728.workers.dev/)** · [Feature preview · 效果预览](#feature-preview)
+
+The online workspace requires sign-in. Explore the screenshots below without an account.
+
+## Feature preview
+
+以下截图来自同一段训练视频的本地工作台，展示二维关键点、人物追踪、关节观测、人物分割与三维骨架。截图中的视频叠加播放来自本地版；在线版从已同步的数据独立播放骨架、轨迹与分割轮廓，并展示训练统计和复盘记录。
+
+These screenshots show the local workspace with video overlays. The online workspace displays synchronized analysis data; full training videos remain on the analysis computer.
+
+### Tracking · 人物追踪
+
+RTMPose + ByteTrack：查看人物框、片段内轨迹编号和画面内移动轨迹。
+
+![Local workspace showing two tracked people with pose keypoints, bounding boxes and motion trails](docs/images/person-tracking.png)
+
+| 2D pose · 二维关键点 | Masks · 人物分割 |
+| --- | --- |
+| <img src="docs/images/2d-pose.png" width="480" alt="RTMPose keypoints overlaid on a local training video"> | <img src="docs/images/person-segmentation.png" width="480" alt="SAM2 person masks overlaid on a local training video"> |
+| RTMPose 关键点与骨架，按视频时间查看。 | SAM2 人物遮罩，按 2 Hz 保存分割轮廓。 |
+
+| Joint observations · 关节观测 | 3D pose · 三维骨架 |
+| --- | --- |
+| <img src="docs/images/joint-observations.png" width="480" alt="Sampled image-plane knee angle trend for a selected track"> | <img src="docs/images/3d-pose.png" width="480" alt="MotionBERT root-relative 3D skeleton beside its local source video"> |
+| 按轨迹、关节查看二维角度序列，并定位对应时间。 | MotionBERT 三维骨架，支持选择轨迹、逐帧回放与旋转视角。 |
+
+轨迹编号不自动代表运动员身份；二维角度为画面平面内观测，三维骨架为模型预测的根节点相对坐标。相关观测保留实验性标记，用于辅助复盘。
+
+### Online and local · 访问方式
+
+| 场景 | 可查看的内容 | 分析电脑是否需要开机 |
+| --- | --- | --- |
+| GitHub README | 上方五张效果截图，无需登录 | 不需要 |
+| 在线工作台（需授权账号登录） | 已同步的训练记录、评分、统计、AI 复盘、二维/轨迹/轮廓及三维骨架 | 不需要 |
+| 本地工作台 | 原视频、分析视频及完整复盘工具 | 需要 |
+| 新分析与自动同步 | 本机执行模型推理，向 Cloudflare 同步记录与 JSON 结果 | 需要，且同步程序运行中 |
+
+仓库发布代码及所选展示截图；完整训练视频、数据库、模型和登录凭据不随仓库发布。
 
 ## 当前能力与边界
 
@@ -23,15 +62,15 @@
 | SAM2 | 已接入官方SAM2.1 tiny本地权重，按2Hz生成整段人物遮罩；可使用首帧人物框或指定选区 |
 | WHAM | 尚未接入，仍需独立环境、权重与已授权SMPL模型 |
 | 人工事件、可修改复盘、历史版本、JSON报告 | 已实现；AI/规则草稿与人工确认分开保存 |
-| 合成样例 | 服务器允许且用户显式勾选才运行；关键点与视频动作无关，永久排除真实趋势 |
-| Cloudflare + 电脑分析 | Workers 静态界面/API、D1；视频与模型留在电脑，训练记录和 JSON 结果自动同步；无需 R2，目标账号尚未上线 |
+| 合成样例 | 仅本地开发环境可选，云端禁用；关键点与视频动作无关，永久排除真实趋势 |
+| Cloudflare + 电脑分析 | 已上线；Workers 静态界面/API、D1；视频与模型留在电脑，训练记录和 JSON 结果自动同步；无需 R2 |
 | 其他部署 | 原有 Docker Compose + PostgreSQL + 私有 S3/COS + Caddy 配置保留 |
 
 FSW 权重核查证据与范围见 [docs/fsw-audit.md](docs/fsw-audit.md)。没有将 ImageNet 权重、随机分类头、论文准确率或规则输出包装为实际摔跤识别结果。
 
 ## Cloudflare 部署与电脑自动分析（无需 R2）
 
-AI 在本机运行；Cloudflare Workers 提供网站/API，D1 保存训练记录及分块 JSON 分析结果。**不需要开通 R2、绑定 R2 付款方式或购买 ECS。** 原视频、预处理视频及模型留在分析电脑，GitHub 只存代码。电脑关机后云端评分、审核、统计、复盘、二维/轨迹/分割数据和三维骨架仍可查看；云端没有原片播放器。完整视频在本地工作台查看。现有本地运行方式继续保留。
+AI 在本机运行；Cloudflare Workers 提供网站/API，D1 保存训练记录及分块 JSON 分析结果。**不需要开通 R2、绑定 R2 付款方式或购买 ECS。** 原视频、预处理视频及模型留在分析电脑，GitHub 保存代码和所选展示截图。电脑关机后云端评分、审核、统计、复盘、二维/轨迹/分割数据和三维骨架仍可查看；云端没有原片播放器。完整视频在本地工作台查看。现有本地运行方式继续保留。
 
 ### 1. 通过 GitHub 部署
 
